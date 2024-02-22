@@ -27,9 +27,7 @@
 #include <fstream>
 #include <vector>
 #include <functional>
-
-#define VERSION_MAJOR 1
-#define VERSION_MINOR 0
+#include "CMakeConfig.hpp"
 
 using namespace std;
 
@@ -203,7 +201,7 @@ bool firstPass( ifstream &pf, int &numCon, vector<Node> &nodes, streampos &fposD
       major = atoi( ver.substr( 0, pos ).c_str() );
       minor = atoi( ver.substr( pos+1, ver.length()-pos ).c_str() );
 
-      if ( (major == VERSION_MAJOR) && (minor <= VERSION_MINOR ) )
+      if ( (major ==VIPR_VERSION_MAJOR) && (minor <=VIPR_VERSION_MINOR ) )
       {
          rstat = true;
       }
@@ -679,7 +677,7 @@ bool writeReorderedDER( ifstream &pf, ofstream &optF, streampos fposDer, int &nu
 
                   optF << "  " << index << " " << val;
                }
-            }  
+            }
          }
          else if(input == "incomplete")
          {

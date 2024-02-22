@@ -35,11 +35,8 @@
 #include <ctime>
 #include <chrono>
 #include <memory>
+#include "CMakeConfig.hpp"
 
-
-// Version control
-#define VERSION_MAJOR 1
-#define VERSION_MINOR 1
 
 // Avoid using namespace std to avoid non-obvious complications (ambiguities)
 using std::map;
@@ -300,7 +297,7 @@ bool checkVersion(string version)
 
    cout << "Certificate format version " << major << "." << minor << endl;
 
-   if( (major == VERSION_MAJOR) && (minor <= VERSION_MINOR) )
+   if( (major ==VIPR_VERSION_MAJOR) && (minor <=VIPR_VERSION_MINOR) )
    {
       returnStatement = true;
    }

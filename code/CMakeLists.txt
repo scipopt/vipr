@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.11.0)
 
 # set the project name and version
-project(VIPR VERSION 1.1)
+set(VIPR_VERSION_MAJOR 1)
+set(VIPR_VERSION_MINOR 1)
+project(VIPR VERSION ${VIPR_VERSION_MAJOR}.${VIPR_VERSION_MINOR})
 
 # specify the C++ standard
 set(CMAKE_CXX_STANDARD 14)
@@ -17,6 +19,7 @@ set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
 # find GMP
 find_package(GMP REQUIRED)
 include_directories(${GMP_INCLUDE_DIRS})
+include_directories(${PROJECT_BINARY_DIR})
 set(libs ${libs} ${GMP_LIBRARIES})
 
 # add executables
@@ -66,6 +69,7 @@ if(VIPRCOMP)
 	if(ZLIB_FOUND)
 		find_package(SOPLEX)
 		if(SOPLEX_FOUND)
+			set(VIPR_HAVE_SOPLEX 1)
 			# include ZLIB
 			include_directories(${ZLIB_INCLUDE_DIRS})
 			set(libs ${libs} ${ZLIB_LIBRARIES})
@@ -86,8 +90,13 @@ if(VIPRCOMP)
          message(STATUS "Soplex found.")
 		else()
 			message(STATUS "viprcomp not installed, because SoPlex could not be found.")
+			set(VIPR_HAVE_SOPLEX 0)
 		endif()
 	else()
 		message(STATUS "viprcomp not installed, because ZLIB could not be found (required by SoPlex).")
 	endif()
 endif()
+
+
+configure_file("${PROJECT_SOURCE_DIR}/CMakeConfig.hpp.in"
+               "${PROJECT_BINARY_DIR}/CMakeConfig.hpp")

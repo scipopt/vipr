@@ -2,22 +2,22 @@
 *
 *   Copyright (c) 2016 Kevin K. H. Cheung
 *
-*   Permission is hereby granted, free of charge, to any person obtaining a 
-*   copy of this software and associated documentation files (the "Software"), 
-*   to deal in the Software without restriction, including without limitation 
-*   the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-*   and/or sell copies of the Software, and to permit persons to whom the 
+*   Permission is hereby granted, free of charge, to any person obtaining a
+*   copy of this software and associated documentation files (the "Software"),
+*   to deal in the Software without restriction, including without limitation
+*   the rights to use, copy, modify, merge, publish, distribute, sublicense,
+*   and/or sell copies of the Software, and to permit persons to whom the
 *   Software is furnished to do so, subject to the following conditions:
 *
-*   The above copyright notice and this permission notice shall be included in 
+*   The above copyright notice and this permission notice shall be included in
 *   all copies or substantial portions of the Software.
 *
-*   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
-*   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
-*   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL 
-*   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
-*   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
-*   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER 
+*   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+*   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+*   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+*   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+*   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+*   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 *   DEALINGS IN THE SOFTWARE.
 *
 */
@@ -26,9 +26,7 @@
 #include <fstream>
 #include <vector>
 #include <set>
-
-#define VERSION_MAJOR 1
-#define VERSION_MINOR 1 
+#include "CMakeConfig.hpp"
 
 using namespace std;
 
@@ -68,13 +66,13 @@ int main(int argc, char *argv[])
       {
          bool rstat = false;
          int major, minor;
-      
+
          size_t pos = ver.find( "." );
-      
+
          major = atoi( ver.substr( 0, pos ).c_str() );
          minor = atoi( ver.substr( pos+1, ver.length()-pos ).c_str() );
-      
-         if ( (major == VERSION_MAJOR) && (minor <= VERSION_MINOR ) )
+
+         if ( (major ==VIPR_VERSION_MAJOR) && (minor <=VIPR_VERSION_MINOR ) )
          {
             rstat = true;
          }
@@ -82,7 +80,7 @@ int main(int argc, char *argv[])
          {
             cerr << "Version " << ver << " unsupported" << endl;
          }
-      
+
          return rstat;
       };
 
@@ -104,7 +102,7 @@ int main(int argc, char *argv[])
          pf >> input;
          if( !(input == "OBJ") )
          {
-            k = atoi(input.c_str());                
+            k = atoi(input.c_str());
 
             for( int i = 0; i < k; ++i )
             {
@@ -120,7 +118,7 @@ int main(int argc, char *argv[])
                   if( index >= numCon)
                   {
                      _updateWidth( index - numCon, curDerIdx );
- 
+
                   }
                }
             }
@@ -303,7 +301,7 @@ int main(int argc, char *argv[])
          pf >> label >> sense >> tmp;
 
          stat = _processSparseVec( false, i );
-         if( !stat ) 
+         if( !stat )
          {
             cerr << "Error processing " << label << endl;
             goto TERMINATE;
@@ -312,7 +310,7 @@ int main(int argc, char *argv[])
          pf >> tmp;
          if( tmp != "{" )
          {
-            cerr << "'{' expected.   Reading instead: " << tmp << " in " 
+            cerr << "'{' expected.   Reading instead: " << tmp << " in "
                  << label << endl;
             goto TERMINATE;
          }

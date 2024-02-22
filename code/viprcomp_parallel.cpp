@@ -22,10 +22,6 @@
 *
 */
 
-// Version control
-#define VERSION_MAJOR 1
-#define VERSION_MINOR 1
-
 // Includes
 #include <iostream>
 #include <sstream>
@@ -37,6 +33,7 @@
 #include <soplex/dsvector.h>
 #include <soplex/lprow.h>
 #include <boost/bimap.hpp>
+#include "CMakeConfig.hpp"
 
 // Timing
 #include <sys/time.h>
@@ -348,7 +345,7 @@ int main(int argc, char *argv[])
                cout << "Continue with default setings (SoPlex on)" << endl;
             }
          }
-         // set maximal number of threads that should be used  
+         // set maximal number of threads that should be used
          else if(strncmp(option, "threads=", 8) == 0)
          {
             char* str = &option[8];
@@ -461,7 +458,7 @@ bool checkVersion(string version)
 
    cout << "Certificate format version " << major << "." << minor << endl;
 
-   if( (major == VERSION_MAJOR) && (minor <= VERSION_MINOR) )
+   if( (major ==VIPR_VERSION_MAJOR) && (minor <=VIPR_VERSION_MINOR) )
    {
       returnStatement = true;
    }
@@ -1286,7 +1283,7 @@ string completelin( SoPlex &workinglp,  bimap& LProwCertificateMap, Constraint& 
       retval = completeIncomplete( workinglp, LProwCertificateMap, activeDerivations, "", completedDerivation, linestream );
 #ifndef NDEBUG
       cout << "Completed derivation: " << line.substr(0,10) << endl;
-#endif 
+#endif
    }
    else if( numberOfCoefficients == "weak" )
       retval = completeWeakDomination( *row, consense, rhs, completedDerivation, linestream );

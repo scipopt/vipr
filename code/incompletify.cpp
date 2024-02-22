@@ -22,13 +22,11 @@
  *
  */
 
-#define VERSION_MAJOR 1
-#define VERSION_MINOR 1
-
 #include <iostream>
 #include <fstream>
 #include <random>
 #include "soplex.h"
+#include "CMakeConfig.hpp"
 
 using namespace std;
 using namespace soplex;
@@ -141,7 +139,7 @@ bool checkVersion(string version)
 
    cout << "Certificate format version " << major << "." << minor << endl;
 
-   if ((major == VERSION_MAJOR) && (minor <= VERSION_MINOR))
+   if ((major ==VIPR_VERSION_MAJOR) && (minor <=VIPR_VERSION_MINOR))
    {
       returnStatement = true;
    }
