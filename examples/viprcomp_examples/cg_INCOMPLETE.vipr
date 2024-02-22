@@ -1,0 +1,30 @@
+%  min x + y
+%  s.t.
+%  C1: 4x + y >= 1
+%  C2: 4x - y <= 2
+%
+%  Optimal value: 1
+%  Optimal solution: (x, y) = (0, 1)
+%
+%  Pure cutting plane proof using CG cuts
+%
+VER 1.0
+VAR 2
+x
+y
+INT 2
+0 1
+OBJ min
+2  0 1  1 1
+CON 2 0
+C1 G 1  2  0 4  1 1
+C2 L 2  2  0 4  1 -1
+RTP range 1 1
+SOL 2
+feas 2  0 1  1 2
+opt 1  1 1
+DER 4
+C3 G -1/2  1  1 1  { lin incomplete } 3
+C4 G 0     1  1 1  { rnd 1  2 1 } 4
+C5 G 1/4   OBJ  { lin incomplete 3 } 5
+C6 G 1     OBJ  { rnd 1  4 1 } 0

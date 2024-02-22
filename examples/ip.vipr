@@ -1,0 +1,28 @@
+% min x2
+% s.t. 2 x1 +   x2 >= 1
+%      2 x1 - 3 x2 <= 1
+%        x1, x2 integers
+VER 1.0
+VAR 2
+x1 x2
+INT 2
+0 1
+OBJ min
+1  1 1
+CON 2 0
+C1 G 1  2  0 2  1 1
+C2 L 1  2  0 2  1 -3
+RTP range 1 inf
+SOL 1
+opt 1  1 1
+DER 5
+s1 L 0  1  0 1
+ { asm } -1
+s2 G 1  1  0 1
+ { asm } -1
+d1 G 1  OBJ
+ { lin 2  0 1  2 -2 } 6
+u1 G 1  OBJ
+ { rnd 2  1 -1/3 3 2/3 } 6
+obj G 1  OBJ
+ { uns 4 2  5 3 } -1
