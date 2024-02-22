@@ -24,12 +24,24 @@
 
 // Includes
 #include <iostream>
+#include <sstream>
 #include <vector>
 #include <map>
 #include <limits>
 #include "soplex.h"
+#include <memory>
+#include <soplex/dsvector.h>
+#include <soplex/lprow.h>
+#include <boost/bimap.hpp>
 #include "CMakeConfig.hpp"
 
+// Timing
+#include <sys/time.h>
+
+// Parallelization
+#include <tbb/tbb.h>
+
+// Namespaces
 using namespace std;
 using namespace soplex;
 
@@ -58,61 +70,125 @@ class SVectorRat : public map<int, Rational>
 };
 
 
-// Globals
+// Input and output files
 ifstream certificateFile;
 ofstream completedFile;
+
+// Settings
 bool debugmode = false;
 bool usesoplex = true;
-int numberOfVariables = 0; // number of variables
-int numberOfIntegers = 0; // number of integers
-int numberOfConstraints = 0; // number of constraints
-int numberOfBoundedCons = 0; // number of bounded constraints
-int numberOfSolutions = 0; // number of solutions
-long numberOfDerivations = 0; // number of derivations
-long currentDerivation = 0; // current derivation
+
+// Global variables
 DSVectorRational dummycol(0); // SoPlex placeholder column
-vector<string> variables; // variable names
-vector<bool> isInt; // integer variable indices
+vector<string> variableNames; // variable names
 DSVectorPointer ObjCoeff(make_shared<DSVectorRational>()); // sparse vector of objective coefficients
+size_t numberOfVariables;
 
-vector<long> currentlyActiveDerivations; // tracks curr. active derivations (for completing lin)
+unsigned int nthreads = thread::hardware_concurrency();
 
-vector<tuple<DSVectorPointer, Rational, int>> constraints; // all constraints, including derived ones
+struct Constraint {DSVectorPointer vec; Rational side; int sense; string line;}; // @todo: take care of deep copies here!
+vector<Constraint> constraints;
 
-struct lpIndex { long idx; bool isRowId; };
-bool operator< ( lpIndex a, lpIndex b ) {
-   return make_pair( a.idx, a.isRowId ) < make_pair( b.idx, b.isRowId );
-}
+typedef boost::bimap<int, long> bimap; // maps rows of the LP to corresponding indices in the certificate used for updating the local LPs
+map<int, long> origConsCertIndex;
 
-typedef pair<long, long> certIndices;
-map< lpIndex, certIndices> correspondingCertRow; // maps each row/var of the LP to its active con/asm
-map< lpIndex, certIndices> originalCertRow; // maps each row/var of the LP to its original con/asm
-VectorRational dualmultipliers(0);
-VectorRational reducedCosts(0);
-vector<tuple<Rational,Rational,long>> lowerBounds; // rational boundval, multiplier, long certindec
+vector<tuple<Rational,Rational,long>> lowerBounds; // rational boundval, multiplier, long certindex
 vector<tuple<Rational,Rational,long>> upperBounds; // rational boundval, multiplier, long certindex
 
-map< long, lpIndex > correspondingLpData; // maps each certificate row to the corresponding lp Data
 
-// Forward Declaration
-void modifyFileName(string &path, const string &newExtension);
-bool checkversion(string ver);
+struct passData { SoPlex passLp; bimap LProwCertificateMap;};
+struct parallelData { passData* bufData; stringstream linestream; bool needscompletion; std::vector<size_t> conidx; string line;};
+
+// circular buffer (also known as ring buffer, circular queue, cyclic queue), references:
+// https://oneapi-src.github.io/oneTBB/main/tbb_userguide/Using_Circular_Buffers.html
+// https://stackoverflow.com/a/15167828/15777342
+class circBuf
+{
+   int tail, head, size;
+   std::vector<passData*> arr;
+   public:
+   circBuf( int maxtokens )
+   {
+      head = tail = -1;
+      size = maxtokens;
+      arr.resize(maxtokens);
+   }
+   /// assignment operator
+   void resize( int maxtokens )
+   {
+      head = tail = -1;
+      size = maxtokens;
+      arr.resize(maxtokens);
+   }
+   void enqueue(passData* warmStartData);
+   passData* dequeue();
+   bool isEmpty() { return head == -1; }
+};
+
+void circBuf::enqueue( passData* warmStartData )
+{
+   if( head == -1 )
+   {
+      head = tail = 0;
+      arr[tail] = warmStartData;
+   }
+   else if( (tail == size-1) && (head != 0) )
+   {
+      tail = 0;
+      arr[tail] = warmStartData;
+   }
+   else
+   {
+      tail++;
+      arr[tail] = warmStartData;
+   }
+}
+
+passData* circBuf::dequeue()
+{
+   passData* data = arr[head];
+   if( head == tail )
+   {
+      head = -1;
+      tail = -1;
+   }
+   else if( head == size-1 )
+   {
+      head = 0;
+   }
+   else
+   {
+      head++;
+   }
+   return data;
+}
+
+
+
+// Forward declaration
+void modifyFileName( string &path, const string &newExtension );
+bool checkversion( string ver );
 bool processVER();
-bool processVAR(SoPlex &workinglp);
+bool processVAR( SoPlex &workinglp );
 bool processINT();
-bool processOBJ(SoPlex &workinglp);
-bool processCON(SoPlex &workinglp);
+bool processOBJ( SoPlex &workinglp );
+bool processCON( SoPlex &workinglp );
 bool processRTP();
 bool processSOL();
-bool processDER(SoPlex &workinglp);
-bool getConstraints(SoPlex &workinglp, string &consense, Rational &rhs, int &activeConstraint);
-bool derisasmorsol();
-bool derislin(SoPlex &workinglp, DSVectorPointer row, string &consense, Rational &rhs, string &label);
-bool derisrnd();
-bool derisuns();
-bool completeLin(SoPlex &workinglp, vector<long> &derToDelete, vector<long> &derToAdd, string &label);
-bool printReasoningToCertificate(DVectorRational &dualmultipliers, DVectorRational &reducedcosts);
+bool processDER( SoPlex workinglp );
+bool getConstraints( SoPlex &workinglp, string &consense, Rational &rhs, int &activeConstraint, size_t currentDerivation);
+std::string completelin( SoPlex &workinglp, bimap& LProwCertificateMap, Constraint &constraint);
 
+static bool completeWeakDomination(DSVectorRational &row, int consense, Rational &rhs, stringstream& completedLine,
+                                    stringstream &initialLine);
+static bool readLinComb( int &sense, Rational &rhs, SVectorRat& coefficients, SVectorRat& mult,
+                  int currentConstraintIndex, SVectorBool &assumptionList, stringstream &baseLine);
+static bool readMultipliers( int &sense, SVectorRat &mult, stringstream &initialLine );
+bool completeIncomplete( SoPlex &workinglp, bimap& LProwCertificateMap, vector<long> &activeDerivations, string label, stringstream& completedLine,
+                        stringstream &baseLine );
+bool printReasoningToLine(DVectorRational &dualmultipliers, DVectorRational &reducedcosts, stringstream& completedLine, bimap& LProwCertificateMap);
+
+// Global bound changes for completing weak
 static void processGlobalBoundChange(Rational rhs, Rational boundmult, int varindex,
                                        long boundindex, int sense)
 {
@@ -139,8 +215,16 @@ static void processGlobalBoundChange(Rational rhs, Rational boundmult, int varin
    }
 }
 
-static
-void printUsage(const char* const argv[], int idx)
+static double getTimeSecs(timeval start, timeval end)
+{
+   auto seconds = end.tv_sec - start.tv_sec;
+   auto microseconds = end.tv_usec - start.tv_usec;
+   auto clock_dur = seconds + microseconds*1e-6;
+   return clock_dur;
+}
+
+// Set usage options
+static void printUsage(const char* const argv[], int idx)
 {
    const char* usage =
       "general options:\n"
@@ -148,6 +232,7 @@ void printUsage(const char* const argv[], int idx)
       \n                        turn off to boost performance if only weak derivations are present.\n"
       "  --debugmode=on/off    enable extra debug output from viprcomp\n"
       "  --verbosity=<level>   set verbosity level inside SoPlex\n"
+      "  --threads=<number>    maximal number of threads to use \n"
       "\n";
    if(idx <= 0)
       cerr << "missing input file\n\n";
@@ -166,6 +251,7 @@ int main(int argc, char *argv[])
    int optidx;
    const char* certificateFileName;
    int verbosity = 0;
+   string path = "";
 
    if( argc == 0 )
    {
@@ -200,8 +286,7 @@ int main(int argc, char *argv[])
       case '-' :
          option = &option[2];
 
-         // --arithmetic=<value> : choose base arithmetic type (0 - double, 1 - quadprecision, 2 - higher multiprecision)
-         // only need to do something here if multi or quad, the rest is handled in runSoPlex
+         // set verbosity of SoPlex
          if(strncmp(option, "verbosity=", 10) == 0)
          {
             char* str = &option[10];
@@ -216,7 +301,7 @@ int main(int argc, char *argv[])
                }
             }
          }
-         // set precision
+         // enable additional debug output
          else if(strncmp(option, "debugmode=", 10) == 0)
          {
             char* str = &option[10];
@@ -238,7 +323,7 @@ int main(int argc, char *argv[])
                cout << "Continue with default setings (debugmode off)" << endl;
             }
          }
-         // set precision
+         // enable/disable soplex -> faster if no incomplete, necessary if incomplete
          else if(strncmp(option, "soplex=", 7) == 0)
          {
             char* str = &option[7];
@@ -251,7 +336,7 @@ int main(int argc, char *argv[])
             else if( string(str) == "off")
             {
                usesoplex = false;
-               cout << "SoPlex turned on." << endl;
+               cout << "SoPlex turned off." << endl;
             }
             else
             {
@@ -259,6 +344,27 @@ int main(int argc, char *argv[])
                << string(str) << " instead" << endl;
                cout << "Continue with default setings (SoPlex on)" << endl;
             }
+         }
+         // set maximal number of threads that should be used
+         else if(strncmp(option, "threads=", 8) == 0)
+         {
+            char* str = &option[8];
+            if( isdigit(option[8]))
+            {
+               int maxthreads = atoi(str);
+               if( maxthreads < 0 || maxthreads > thread::hardware_concurrency() )
+               {
+                  cerr << "threads outside of valid range: specified " << maxthreads << " but maximal number is " << thread::hardware_concurrency() << endl;
+                  printUsage(argv, optidx);
+                  return 1;
+               }
+               else
+                  nthreads = maxthreads;
+            }
+         }
+         else if(strncmp(option, "outfile=", 8) == 0)
+         {
+            path = string(&option[8]);
          }
          else
          {
@@ -277,8 +383,11 @@ int main(int argc, char *argv[])
       return returnStatement;
    }
 
-   string path = argv[argc -1];
-   modifyFileName(path, "_complete.vipr");
+   if(path == "")
+   {
+      path = certificateFileName;
+      modifyFileName(path, "_complete.vipr");
+   }
 
    completedFile.open( path.c_str(), ios::out );
 
@@ -298,9 +407,10 @@ int main(int argc, char *argv[])
    baselp.setRealParam(SoPlex::FEASTOL, 0.0);
    baselp.setRealParam(SoPlex::OPTTOL, 0.0);
 
-   baselp.setIntParam(SoPlex::VERBOSITY, verbosity);
+   baselp.setIntParam(SoPlex::VERBOSITY, verbosity); // verbosity var prob. obsolete for parallelization
 
-   double start_cpu_tm = clock();
+   struct timeval start, end;
+   gettimeofday( &start, 0);
    if( processVER() )
       if( processVAR(baselp) )
          if( processINT() )
@@ -308,16 +418,22 @@ int main(int argc, char *argv[])
                if( processCON(baselp) )
                   if( processRTP() )
                      if( processSOL() )
+                     {
+                        gettimeofday( &end, 0 );
+
+                        cout << endl << "reading took " << getTimeSecs(start, end)
+                             << " seconds (Wall Clock)" << endl;
+                        gettimeofday( &start, 0 );
                         if( processDER(baselp) )
                         {
                               cout << "Completion of File successful!" <<endl;
                               returnStatement = 0;
-                              double cpu_dur = (clock() - start_cpu_tm)
-                                               / (double)CLOCKS_PER_SEC;
+                              gettimeofday( &end, 0 );
 
-                              cout << endl << "Completed in " << cpu_dur
-                                   << " seconds (CPU)" << endl;
+                              cout << endl << "completing and printing took " << getTimeSecs(start, end)
+                                   << " seconds (Wall Clock)" << endl;
                         }
+                     }
    return returnStatement;
 }
 
@@ -342,7 +458,7 @@ bool checkVersion(string version)
 
    cout << "Certificate format version " << major << "." << minor << endl;
 
-   if( (major == VIPR_VERSION_MAJOR) && (minor <= VIPR_VERSION_MINOR) )
+   if( (major ==VIPR_VERSION_MAJOR) && (minor <=VIPR_VERSION_MINOR) )
    {
       returnStatement = true;
    }
@@ -422,7 +538,6 @@ bool processVAR(SoPlex &workinglp)
       else
       {
          completedFile << " " << numberOfVariables;
-         isInt.resize( numberOfVariables );
 
          upperBounds.resize( numberOfVariables );
          lowerBounds.resize( numberOfVariables );
@@ -442,11 +557,8 @@ bool processVAR(SoPlex &workinglp)
             if( usesoplex )
             {
                workinglp.addColRational( LPColRational( 1, dummycol, infinity, -infinity ) );
-               correspondingCertRow[{i, false}] = make_pair( -1, -1 );
-               originalCertRow[{i, false}] = make_pair( -1, -1);
-               isInt[i] = false;
             }
-            variables.push_back( tmp );
+            variableNames.push_back( tmp );
          }
       }
    }
@@ -459,6 +571,8 @@ bool processVAR(SoPlex &workinglp)
 // Error if nr of integers invalid or nr of integers > specified integers or section missing
 bool processINT()
 {
+   size_t numberOfIntegers;
+
    cout << endl << "Processing INT section..." << endl;
 
    bool returnStatement = false;
@@ -494,7 +608,6 @@ bool processINT()
          return returnStatement;
       }
       completedFile << index << " ";
-      isInt[index] = true;
    }
    returnStatement = true;
 
@@ -506,16 +619,15 @@ bool processINT()
 // Error if objective sense invalid (other than -1, 0, 1 for min, equality, max) or subroutine fails
 bool processOBJ(SoPlex &workinglp)
 {
-   cout << endl << "Processing OBJ section..." << endl;
-
    bool returnStatement = false;
    string section, objectiveSense;
    int numberOfObjCoeff, idx;
    vector<Rational> values;
    vector<int> indices;
-   VectorRational Objective(0); // full objective Vector
    Rational val;
+   VectorRational Objective(0); // full objective Vector
 
+   cout << endl << "Processing OBJ section..." << endl;
 
    certificateFile >> section;
 
@@ -572,13 +684,13 @@ bool processOBJ(SoPlex &workinglp)
 // Stores constraints for future access
 bool processCON(SoPlex &workinglp)
 {
-   cout << endl << "Processing CON section..." << endl;
-
    bool returnStatement = false;
    string section;
    string label, consense;
    Rational rhs;
+   size_t numberOfConstraints, numberOfBoundedCons, currentDerivation;
 
+   cout << endl << "Processing CON section..." << endl;
 
    certificateFile >> section;
    if( section!= "CON" )
@@ -591,18 +703,20 @@ bool processCON(SoPlex &workinglp)
    certificateFile >> numberOfConstraints >> numberOfBoundedCons;
    completedFile << " " << numberOfConstraints << " " << numberOfBoundedCons;
 
+   currentDerivation = 0;
+
    for( int i = 0; i < numberOfConstraints; ++i)
    {
       certificateFile >> label >> consense >> rhs;
       completedFile << "\r\n" + label + "  " + consense + " " << rhs << "  ";
       currentDerivation++;
-      returnStatement = getConstraints(workinglp, consense, rhs, i);
+      returnStatement = getConstraints(workinglp, consense, rhs, i, currentDerivation);
    }
 
    return returnStatement;
 }
 
-// Proecesses the relation to prove in order to complete file
+// Processes the relation to prove in order to complete file
 bool processRTP()
 {
    cout << endl << "Processing RTP section..." << endl;
@@ -647,12 +761,14 @@ bool processRTP()
 // Processes the solutions to check in order to complete file
 bool processSOL()
 {
-   cout << endl << "Processing SOL section... " << endl;
    bool returnStatement = false;
    string section, label;
    int numberOfVarSol = 0;
    int idx;
    Rational val;
+   size_t numberOfSolutions;
+
+   cout << endl << "Processing SOL section... " << endl;
 
    certificateFile >> section;
 
@@ -713,48 +829,157 @@ static bool isEqual(DSVectorRational row1, DSVectorRational row2)
    return true;
 }
 
-// write a row to the the completed File.
-// This does not write the reasoning why this constraint is valid
-bool printRowToCertificate(DSVectorPointer row, string& sense, Rational rhs, string label, bool isobjective)
+static size_t pushLineToConstraints(string& line, size_t conidx)
 {
-   completedFile << label << " ";
-   completedFile << sense;
+   stringstream linestream(line);
 
-   completedFile << " " << rhs << " ";
+   string label, numberOfCoefficients, consense;
+   int sense, intOfCoefficients = 0;
+   long idx;
+   Rational val, rhs;
 
-   if( isobjective )
+   DSVectorPointer row;
+   vector<Rational> values;
+   vector<int> indices;
+   bool isobjective, global;
+
+   linestream >> label >> consense >> rhs;
+   linestream >> numberOfCoefficients;
+
+   if( numberOfCoefficients == "OBJ" )
    {
-      completedFile << "OBJ ";
+      isobjective = true;
+      row = ObjCoeff;
+      intOfCoefficients = row->size();
    }
    else
    {
-      completedFile << row->size();
-      for( size_t i = 0; i < row->size(); i++ )
+      isobjective = false;
+      intOfCoefficients = atoi(numberOfCoefficients.c_str());
+      values.reserve(intOfCoefficients);
+      indices.reserve(intOfCoefficients);
+      for( int j = 0; j < intOfCoefficients; ++j )
       {
-         completedFile << " " << row->index(i) << " " << (*row)[row->index(i)];
+         linestream >> idx >> val;
+         values.push_back(val);
+         indices.push_back(idx);
       }
+
+      row = make_shared<DSVectorRational>();
+
+      (*row).add(intOfCoefficients, indices.data(), values.data());
    }
 
-   return true;
+   switch(consense[0])
+   {
+      case 'E':
+         sense = 0; break;
+      case 'L':
+         sense = -1; break;
+      case 'G':
+         sense = 1; break;
+      default:
+         cerr << "wrong sense for constraints " << consense << endl;
+         break;
+   }
+   constraints[conidx] = {row, rhs, sense, line};
+   return constraints.size() - 1;
 }
 
-// Processes Derivation section
-// Complete derivations marked "incomplete" or "weak"
-bool processDER(SoPlex &workinglp)
+// read data from certificateFile and buffer it correctly in the stringstream of returnData
+static void processSequentialInputFilter(parallelData& returnData, size_t& lineindex, tbb::flow_control& fc)
 {
-   cout << endl << "Processing DER section... " << endl;
-   bool returnStatement = false;
-   string section, numberOfCoefficients, label, consense, bracket, kind;
-   int intOfCoefficients = 0;
-   long idx, sense;
-   Rational val, rhs;
-   currentDerivation = numberOfConstraints;
+   string line;
+   bool stop = false;
+   int nbufferedlines = 0;
 
+   stringstream passstream;
+   bool lineneedscompletion = false;
+   size_t filepos = certificateFile.tellg();
+
+   while( !stop && getline(certificateFile, line) )
+   {
+      lineneedscompletion = (line.find("weak") != string::npos) || (line.find("incomplete") != string::npos);
+      // line needs to be completed -> only one line at a time
+      if( lineneedscompletion )
+      {
+         if( nbufferedlines == 0 )
+         {
+            returnData.conidx.push_back(lineindex);
+            pushLineToConstraints(line, lineindex);
+            lineindex++;
+            nbufferedlines++;
+            passstream << line;
+            stop = true;
+         }
+         else
+         {
+            // reset to beginning of line
+            certificateFile.seekg(filepos);
+            stop = true;
+            lineneedscompletion = false;
+         }
+      }
+      else
+      {
+         returnData.conidx.push_back(lineindex);
+         pushLineToConstraints(line, lineindex);
+         lineindex++;
+         passstream << line << std::endl;
+         nbufferedlines++;
+         if( nbufferedlines >= 10 )
+            stop = true;
+      }
+      filepos = certificateFile.tellg();
+   }
+
+   returnData.needscompletion = lineneedscompletion;
+
+   if( nbufferedlines > 0 )
+      returnData.linestream << passstream.rdbuf();
+   else
+      fc.stop();
+}
+
+// read data from certificateFile and buffer it correctly in the stringstream of returnData
+static void readFileIntoMemory(size_t initialLine, std::vector<size_t>& toCompleteLines)
+{
+   string line;
+   size_t lineindex = initialLine;
+   bool lineneedscompletion = false;
+
+   while( getline(certificateFile, line) )
+   {
+      lineneedscompletion = (line.find("weak") != string::npos) || (line.find("incomplete") != string::npos);
+      // line needs to be completed -> only one line at a time
+      if( lineneedscompletion )
+         toCompleteLines.push_back(lineindex);
+
+      pushLineToConstraints(line, lineindex);
+      lineindex++;
+   }
+}
+
+bool processDER(SoPlex workinglp)
+{
+   bool returnStatement = false;
+   string section;
+   size_t numberOfDerivations;
+   size_t numberOfConstraints = constraints.size();
+   size_t completedLines = 0;
+   size_t lineindex;
+   timeval start, end;
+   std::vector<size_t> toCompleteLines;
+   std::vector<string> completedlines;
+
+   cout << endl << "Processing DER section... " << endl;
    certificateFile >> section;
 
-   if( section != "DER" )
+   gettimeofday( &start, 0 );
+
+   if( section!= "DER" )
    {
-      cerr << "DER expected.   Read instead " << section << endl;
+      cerr << "DER expected.  Read instead " << section << endl;
       return false;
    }
 
@@ -762,6 +987,8 @@ bool processDER(SoPlex &workinglp)
 
    certificateFile >> numberOfDerivations;
    completedFile << " " << numberOfDerivations;
+   constraints.resize(constraints.size() + numberOfDerivations);
+   cout << "Number of Derivations is " << numberOfDerivations << endl;
 
    if( numberOfDerivations == 0 )
    {
@@ -769,124 +996,130 @@ bool processDER(SoPlex &workinglp)
       return true;
    }
 
+   // skip to next line
+   certificateFile.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-   for( long i = 0; i < numberOfDerivations; ++i )
+   cout << "Available threads: " << nthreads << endl;
+
+   lineindex = numberOfConstraints;
+
+   readFileIntoMemory(lineindex, toCompleteLines);
+
+   circBuf circQueue(0);
+
+   // generate and queue the LPs that are needed in parallel
+   if( usesoplex )
    {
-      DSVectorPointer row(make_shared<DSVectorRational>());
-      vector<Rational> values;
-      vector<int> indices;
-      currentDerivation += 1;
-      bool isobjective;
-
-      int n = numberOfDerivations + numberOfConstraints;
-      bool global;
-
-      certificateFile >> label >> consense >> rhs;
-      completedFile << endl;
-
-      if( debugmode == true )
+      circQueue.resize(2 * nthreads);
+      for(int i = 0; i < 2 * nthreads; ++i)
       {
-         cout << "completing constraint " << label << endl;
+         passData* queueData = new passData[1];
+         //queueData->passLp();
+         queueData->passLp.setIntParam(SoPlex::READMODE, SoPlex::READMODE_RATIONAL);
+         queueData->passLp.setIntParam(SoPlex::SOLVEMODE, SoPlex::SOLVEMODE_RATIONAL);
+         queueData->passLp.setIntParam(SoPlex::CHECKMODE, SoPlex::CHECKMODE_RATIONAL);
+         queueData->passLp.setIntParam(SoPlex::SYNCMODE, SoPlex::SYNCMODE_AUTO);
+         queueData->passLp.setRealParam(SoPlex::FEASTOL, 0.0);
+         queueData->passLp.setRealParam(SoPlex::OPTTOL, 0.0);
+         queueData->passLp = workinglp;
+         circQueue.enqueue(queueData);
       }
-      // get derived constraints
-      certificateFile >> numberOfCoefficients;
-
-      if( numberOfCoefficients == "OBJ" )
-      {
-         isobjective = true;
-         row = ObjCoeff;
-         intOfCoefficients = row->size();
-      }
-      else
-      {
-         isobjective = false;
-         intOfCoefficients = atoi(numberOfCoefficients.c_str());
-         values.reserve(intOfCoefficients);
-         indices.reserve(intOfCoefficients);
-         for( int j = 0; j < intOfCoefficients; ++j )
-         {
-            certificateFile >> idx >> val;
-            values.push_back(val);
-            indices.push_back(idx);
-         }
-
-         row->add(intOfCoefficients, indices.data(), values.data());
-      }
-
-      switch(consense[0])
-      {
-         case 'E':
-            sense = 0; break;
-         case 'L':
-            sense = -1; break;
-         case 'G':
-            sense = 1; break;
-         default:
-            cerr << "wrong sense for constraints " << consense << endl;
-            break;
-      }
-      constraints.push_back(make_tuple(row, rhs, sense));
-
-      // obtain derivation kind
-      certificateFile >> bracket >> kind;
-
-      if( bracket != "{" )
-      {
-         cerr << "Expecting { but read instead " << bracket << endl;
-         return false;
-      }
-      else
-      {
-         if( kind == "asm" || kind == "sol")
-         {
-            printRowToCertificate(row, consense, rhs, label, isobjective);
-            completedFile << " " + bracket + " " + kind;
-            returnStatement = derisasmorsol();
-         }
-         else if( kind == "lin")
-         {
-            printRowToCertificate(row, consense, rhs, label, isobjective);
-            completedFile << " " + bracket + " " + kind;
-            returnStatement = derislin(workinglp, row, consense, rhs, label);
-            if( !returnStatement )
-               cerr << "Could not process constraint " << label << endl;
-         }
-         else if( kind == "rnd" )
-         {
-            printRowToCertificate(row, consense, rhs, label, isobjective);
-            completedFile << " " + bracket + " " + kind;
-            returnStatement = derisrnd();
-         }
-         else if( kind == "uns" )
-         {
-            printRowToCertificate(row, consense, rhs, label, isobjective);
-            completedFile << " " + bracket + " " + kind;
-            returnStatement = derisuns();
-         }
-         else
-         {
-            cerr << "Unknown reason. Nothing to complete." << endl;
-            returnStatement = false;
-         }
-         if( intOfCoefficients == 1 )
-            processGlobalBoundChange(rhs, (*row)[row->index(0)], idx, numberOfConstraints + i, sense);
-         else
-            certificateFile.ignore(numeric_limits<streamsize>::max(), '\n');
-      }
-      if( !returnStatement )
-         break;
    }
-   return returnStatement;
+
+   // reset the line index
+   lineindex = 0;
+
+   gettimeofday( &end, 0 );
+   cout << endl << "processing file into memory took " << getTimeSecs(start, end)
+        << " seconds (Wall Clock)" << endl;
+
+   gettimeofday( &start, 0 );
+
+
+   // pipeline to complete the derivations
+   tbb::parallel_pipeline(nthreads,
+      // sequential filter to manage the circular buffer and to ensure output is in correct order
+      tbb::make_filter<void, parallelData>( tbb::filter_mode::serial_in_order,
+         [&]( tbb::flow_control& fc) {
+            parallelData returnData;
+            while(lineindex != toCompleteLines.size())
+            {
+               if( usesoplex )
+                  returnData.bufData = circQueue.dequeue();
+               returnData.conidx.push_back(toCompleteLines[lineindex]);
+               lineindex++;
+               return returnData;
+            }
+            fc.stop();
+            return returnData;
+         }
+      ) &
+      // parallel processing and completion of derivations -> passes completed line to last filter
+      tbb::make_filter<parallelData, parallelData>( tbb::filter_mode::parallel,
+         [&]( parallelData returnData ) {
+            returnData.line = completelin(returnData.bufData->passLp, returnData.bufData->LProwCertificateMap, constraints[returnData.conidx[0]]);
+            return returnData;
+         }
+      ) &
+      //  manages the queueing of the circular buffer and pushes the completed lines to a vector in the correct order
+      tbb::make_filter<parallelData, void>( tbb::filter_mode::serial_in_order,
+            [&]( parallelData returnData ) {
+
+            completedlines.push_back(returnData.line);
+            if( usesoplex )
+               circQueue.enqueue(returnData.bufData);
+            }
+         )
+      );
+
+   if( usesoplex )
+   {
+      while(!circQueue.isEmpty())
+      {
+         passData* data = circQueue.dequeue();
+         delete[] data;
+      }
+   }
+
+
+   gettimeofday( &end, 0 );
+   cout << endl << "processing completion pipeline took " << getTimeSecs(start, end)
+        << " seconds (Wall Clock)" << endl;
+
+   gettimeofday(&start, 0 );
+
+   // output the lines to the certificate
+   int c = 0;
+   completedFile << endl;
+   for( auto i = numberOfConstraints; i < constraints.size(); ++i )
+   {
+      if( toCompleteLines.size() == 0 || c >= toCompleteLines.size() || i != toCompleteLines[c] )
+         completedFile << constraints[i].line << endl;
+      else
+      {
+         completedFile << completedlines[c] << endl;
+         c++;
+      }
+   }
+
+   gettimeofday( &end, 0 );
+   cout << endl << "writing to file took " << getTimeSecs(start, end)
+        << " seconds (Wall Clock)" << endl << endl;
+
+   std::cout << "Completed " << toCompleteLines.size() << " out of " << numberOfDerivations << endl;
+   return true;
 }
+
+
 
 // Read Coefficients for any constraint
 // Modify main LP
-bool getConstraints(SoPlex &workinglp, string &consense, Rational &rhs, int &activeConstraint)
+bool getConstraints(SoPlex &workinglp, string &consense, Rational &rhs, int &activeConstraint, size_t currentDerivation)
 {
    bool returnStatement = true;
-   string numberOfCoefficients,normalizedSense, actualsense;
+   string numberOfCoefficients, normalizedSense, actualsense;
    int intOfCoefficients = 0, sense;
-   DSVectorPointer row(make_shared<DSVectorRational>());
+   DSVectorPointer row;
    vector<Rational> values;
    vector<int> indices;
    long idx, lastrow;
@@ -902,6 +1135,7 @@ bool getConstraints(SoPlex &workinglp, string &consense, Rational &rhs, int &act
    }
    else
    {
+      row = make_shared<DSVectorRational>();
       intOfCoefficients = atoi(numberOfCoefficients.c_str());
       values.reserve(intOfCoefficients);
       indices.reserve(intOfCoefficients);
@@ -916,7 +1150,6 @@ bool getConstraints(SoPlex &workinglp, string &consense, Rational &rhs, int &act
       {
 
          // normalize bound constraints
-
          if( consense == "E")
             normalizedSense = "E";
          else if( consense == "L" )
@@ -953,7 +1186,7 @@ bool getConstraints(SoPlex &workinglp, string &consense, Rational &rhs, int &act
          }
       }
 
-      row->add(intOfCoefficients, indices.data(), values.data());
+      (*row).add(intOfCoefficients, indices.data(), values.data());
    }
 
    /* only populate soplex LP if soplex is actually run */
@@ -978,7 +1211,7 @@ bool getConstraints(SoPlex &workinglp, string &consense, Rational &rhs, int &act
          returnStatement = false;
 
       lastrow = workinglp.numRows();
-      correspondingCertRow[{lastrow-1, true}] = make_pair(activeConstraint, activeConstraint);
+      origConsCertIndex[lastrow-1] = activeConstraint;
    }
    else
    {
@@ -993,33 +1226,81 @@ bool getConstraints(SoPlex &workinglp, string &consense, Rational &rhs, int &act
          returnStatement = false;
    }
 
-   constraints.push_back(make_tuple(row, Rational(rhs), sense));
+   constraints.push_back({row, Rational(rhs), sense, ""});
 
    return returnStatement;
 }
-// Case derivation is assumption, original line is taken over
-bool derisasmorsol()
-{
-   string bracket;
-   long derHierarchy;
 
-   certificateFile >> bracket;
-   if( bracket != "}" )
+string completelin( SoPlex &workinglp,  bimap& LProwCertificateMap, Constraint& constraint)
+{
+   string& line = constraint.line;
+   int consense = constraint.sense;
+   Rational& rhs = constraint.side;
+   DSVectorPointer row = constraint.vec;
+
+   auto derivationstart = line.find("lin");
+   stringstream linestream(line.substr(derivationstart + 3));
+   stringstream completedDerivation;
+   string numberOfCoefficients;
+   vector<long> activeDerivations;
+
+   bool retval = true;
+
+   linestream >> numberOfCoefficients;
+
+   if( numberOfCoefficients == "incomplete" )
    {
-      cerr << "Expecting } but read instead" << bracket << endl;
-      return  false;
+      string tmp;
+
+      assert(usesoplex);
+      if( !usesoplex )
+      {
+         cerr << "Soplex support must be enabled to process incomplete constraint type. Rerun with parameter soplex=ON." << endl;
+         return "";
+      }
+      VectorRational newObjective(0);
+      newObjective.reSize(workinglp.numColsRational());
+      newObjective.reDim(workinglp.numColsRational());
+      newObjective = *row;
+      workinglp.changeObjRational(newObjective);
+
+      // workinglp.setRealParam(SoPlex::TIMELIMIT, 10.0);
+
+      assert( consense == 0 || consense == -1 || consense == 1);
+
+      if( consense >= 0 )
+         workinglp.setIntParam(SoPlex::OBJSENSE, SoPlex::OBJSENSE_MINIMIZE);
+      else
+         workinglp.setIntParam(SoPlex::OBJSENSE, SoPlex::OBJSENSE_MAXIMIZE);
+
+      linestream >> tmp;
+      while( tmp != "}" )
+      {
+         activeDerivations.push_back(stol(tmp));
+         linestream >> tmp;
+      }
+      linestream.seekg(0);
+      retval = completeIncomplete( workinglp, LProwCertificateMap, activeDerivations, "", completedDerivation, linestream );
+#ifndef NDEBUG
+      cout << "Completed derivation: " << line.substr(0,10) << endl;
+#endif
    }
+   else if( numberOfCoefficients == "weak" )
+      retval = completeWeakDomination( *row, consense, rhs, completedDerivation, linestream );
    else
    {
-      completedFile << " " + bracket;
-      certificateFile >> derHierarchy;
-      completedFile << " " << derHierarchy;
-      return true;
+      cerr << "Wrong type of derivation: " << numberOfCoefficients << endl;
    }
+
+   completedDerivation << " -1 ";
+
+   string completedstring = line.substr(0,derivationstart + 3) + completedDerivation.str();
+   return completedstring;
+
 }
 
 // Reads multipliers for completing weak domination
-static bool readMultipliers( int &sense, SVectorRat &mult )
+static bool readMultipliers( int &sense, SVectorRat &mult, stringstream &baseLine )
 {
 
    int k;
@@ -1027,14 +1308,14 @@ static bool readMultipliers( int &sense, SVectorRat &mult )
 
    mult.clear();
 
-   certificateFile >> k;
+   baseLine >> k;
 
    for( auto j = 0; j < k; ++j )
    {
       Rational a;
       int index;
 
-      certificateFile >> index >> a;
+      baseLine >> index >> a;
 
       if( a == 0 ) continue; // ignore 0 multiplier
 
@@ -1042,11 +1323,11 @@ static bool readMultipliers( int &sense, SVectorRat &mult )
 
       if( sense == 0 )
       {
-         sense = get<2>(constraints[index]) * a.sign();
+         sense = constraints[index].sense * a.sign();
       }
       else
       {
-         int tmp = get<2>(constraints[index]) * a.sign();
+         int tmp = constraints[index].sense * a.sign();
          if( tmp != 0 && sense != tmp )
          {
             cerr << "Coefficient has wrong sign for index " << index << endl;
@@ -1063,11 +1344,11 @@ TERMINATE:
 
 // Reads linear combinations for completing weak domination
 static bool readLinComb( int &sense, Rational &rhs, SVectorRat& coefficients, SVectorRat& mult,
-                  int currentConstraintIndex, SVectorBool &assumptionList)
+                  int currentConstraintIndex, SVectorBool &assumptionList, stringstream &baseLine)
 {
    bool returnStatement = true;
 
-   if( !readMultipliers(sense, mult) )
+   if( !readMultipliers(sense, mult, baseLine) )
    {
       returnStatement = false;
    }
@@ -1087,16 +1368,16 @@ static bool readLinComb( int &sense, Rational &rhs, SVectorRat& coefficients, SV
          // for( auto it2 = myassumptionList.begin(); it2 != myassumptionList.end(); ++it2 )
          //    assumptionList[it2->first] = true;
 
-         auto &con = constraints[index];
+         auto& con = constraints[index];
 
-         DSVectorPointer c = get<0>(con);
+         auto& c = con.vec;
 
          for( auto i = 0; i < c->size(); ++i )
          {
             (coefficients)[c->index(i)] += a * (*c)[c->index(i)];
          }
 
-         rhs += a * get<1>(con);
+         rhs += a * con.side;
       }
    }
 
@@ -1104,14 +1385,14 @@ static bool readLinComb( int &sense, Rational &rhs, SVectorRat& coefficients, SV
 }
 
 // Complete "lin"-type derivations marked "weak"
-static bool completeWeakDomination(DSVectorPointer row, string &consense, Rational &rhs)
+static bool completeWeakDomination(DSVectorRational &row, int consense, Rational &rhs, stringstream& completedLine,
+                                    stringstream &baseLine)
 {
    SVectorRat coefDer;
    SVectorRat multDer;
    Rational rhsDer;
    Rational correctedSide;
    SVectorBool asmlist;
-   int senseDer = 0;
    int nbounds;
    bool success;
    tuple<Rational,Rational,long> tup;
@@ -1122,7 +1403,7 @@ static bool completeWeakDomination(DSVectorPointer row, string &consense, Ration
    Rational boundfactor;
    long long boundindex;
 
-   certificateFile >> bracket >> nbounds;
+   baseLine >> bracket >> nbounds;
    for( size_t i = 0; i < nbounds; i++ )
    {
       int varIndex;
@@ -1130,7 +1411,7 @@ static bool completeWeakDomination(DSVectorPointer row, string &consense, Ration
       Rational val;
       string type;
 
-      certificateFile >> type >> varIndex >> boundIndex >> val;
+      baseLine >> type >> varIndex >> boundIndex >> val;
       if( type == "L" )
       {
          localLowerBoundsToUse[varIndex] = make_tuple(boundIndex, val);
@@ -1147,24 +1428,11 @@ static bool completeWeakDomination(DSVectorPointer row, string &consense, Ration
       }
    }
 
-   certificateFile >> bracket;
+   baseLine >> bracket;
 
-   switch(consense[0])
+   if( !readLinComb(consense, rhsDer, coefDer, multDer, 0, asmlist, baseLine) )
    {
-      case 'E':
-         senseDer = 0; break;
-      case 'L':
-         senseDer = -1; break;
-      case 'G':
-         senseDer = 1; break;
-      default:
-         cerr << "wrong sense for constraints " << consense << endl;
-         break;
-   }
-
-   if( !readLinComb(senseDer, rhsDer, coefDer, multDer, 0, asmlist) )
-   {
-      certificateFile.ignore(numeric_limits<streamsize>::max(), '\n');
+      baseLine.ignore(numeric_limits<streamsize>::max(), '\n');
       return false;
    }
 
@@ -1174,7 +1442,7 @@ static bool completeWeakDomination(DSVectorPointer row, string &consense, Ration
    {
       int idx = it->first;
       Rational derivedVal = it->second;
-      Rational valToDerive = (*row)[idx];
+      Rational valToDerive = (row)[idx];
 
       coefDer[idx] = valToDerive;
 
@@ -1186,17 +1454,16 @@ static bool completeWeakDomination(DSVectorPointer row, string &consense, Ration
          Rational boundmult = valToDerive - derivedVal;
          bool islower;
 
-         // con is <= -> need to use ub for positive, lb for negative boundmult
-         if(consense == "L")
+         if(consense == -1)
             islower = (boundmult <= 0);
          // con is >= -> need to use ub for negative, lb for positive boundmult
-         else if(consense == "G")
+         else if(consense == 1)
             islower = (boundmult >= 0);
          // cons is == -> this can currently not be handled, would need to be split in two parts
-         else if(consense == "E")
+         else if(consense == 0)
          {
             cerr << "  cannot complete weak dominated equality constraints" << endl;
-            certificateFile.ignore(numeric_limits<streamsize>::max(), '\n');
+            baseLine.ignore(numeric_limits<streamsize>::max(), '\n');
             return false;
          }
 
@@ -1228,7 +1495,7 @@ static bool completeWeakDomination(DSVectorPointer row, string &consense, Ration
          {
             if( boundmult != 0 )
             {
-               cout << "    correcting variable " << variables[idx] << " (idx " << idx << ") by " <<
+               cout << "    correcting variable " << variableNames[idx] << " (idx " << idx << ") by " <<
                         boundmult << " (" << static_cast<double>(boundmult) << ") using";
                if( islower )
                {
@@ -1248,11 +1515,11 @@ static bool completeWeakDomination(DSVectorPointer row, string &consense, Ration
       }
    }
    // now go the other way
-   for( int i = 0; i < row->size(); ++i )
+   for( int i = 0; i < row.size(); ++i )
    {
-      int idx = row->index(i);
+      int idx = row.index(i);
       Rational derivedVal = coefDer[idx];
-      Rational valToDerive = (*row)[idx];
+      Rational valToDerive = (row)[idx];
 
       if( derivedVal == valToDerive )
          continue;
@@ -1263,16 +1530,16 @@ static bool completeWeakDomination(DSVectorPointer row, string &consense, Ration
          bool islower;
 
          // con is <= -> need to use ub for positive, lb for negative boundmult
-         if(consense == "L")
+         if(consense == -1)
             islower = (boundmult <= 0);
          // con is >= -> need to use ub for negative, lb for positive boundmult
-         else if(consense == "G")
+         else if(consense == 1)
             islower = (boundmult >= 0);
          // cons is == -> this can currently not be handled, would need to be split in two parts
-         else if(consense == "E")
+         else if(consense == 0)
          {
             cerr << "  cannot complete weak dominated equality constraints" << endl;
-            certificateFile.ignore(numeric_limits<streamsize>::max(), '\n');
+            baseLine.ignore(numeric_limits<streamsize>::max(), '\n');
             return false;
          }
 
@@ -1304,7 +1571,7 @@ static bool completeWeakDomination(DSVectorPointer row, string &consense, Ration
          {
             if( boundmult != 0 )
             {
-               cout << "    correcting variable " << variables[idx] << " (idx " << idx << ") by "
+               cout << "    correcting variable " << variableNames[idx] << " (idx " << idx << ") by "
                     << boundmult << " (" << static_cast<double>(boundmult) << ") using";
                if( islower )
                {
@@ -1338,14 +1605,17 @@ static bool completeWeakDomination(DSVectorPointer row, string &consense, Ration
    }
 
    // first case: < and the side is larger, second case: > and side is smaller
-   if( (senseDer == -1 && correctedSide > rhs) || (senseDer == 1 && correctedSide < rhs) )
+   if( (consense == -1 && correctedSide > rhs) || (consense == 1 && correctedSide < rhs) )
    {
-      if( row->size() == 0 )
+      if( row.size() == 0 )
       {
-         if( (senseDer == -1 && correctedSide < 0) || senseDer == 1 && correctedSide > 0)
+         if( (consense == -1 && correctedSide < 0) || consense == 1 && correctedSide > 0)
             success = true;
          else
+         {
+            cerr << "invalid claim of infeasibility " << endl;
             success = false;
+         }
       }
       else
       {
@@ -1361,195 +1631,36 @@ static bool completeWeakDomination(DSVectorPointer row, string &consense, Ration
    else
       success = true;
 
-   completedFile << " " << multDer.size();
+   completedLine << " " << multDer.size();
    for(auto it = multDer.begin(); it != multDer.end(); it++)
    {
-      completedFile << " " << it->first << " " << it->second;
+      completedLine << " " << it->first << " " << it->second;
    }
 
-   completedFile << " } -1";
+   completedLine << " }";
 
    return success;
 }
 
-// Case derivation is "lin"
-// Completes cases "incomplete" or "weak"
-bool derislin(SoPlex &workinglp, DSVectorPointer row, string &consense, Rational &rhs, string &label)
-{
-
-   string numberOfCoefficients, tmp, bracket;
-   long intOfCoefficients, idx, derhir;
-
-   vector<long> newActiveDerivations;
-   vector<long> toDeleteDerivations;
-   vector<long> toAddDerivations;
-
-   Rational val;
-   DSVectorRational reasoningRow(0);
-
-   certificateFile >> numberOfCoefficients;
-
-   // Prepares completion of "incomplete" reasoning by locally modifying the LP
-   if( numberOfCoefficients == "incomplete" )
-   {
-      VectorRational newObjective(0);
-
-      assert(usesoplex);
-
-      if( !usesoplex )
-      {
-         cerr << "soplex support must be enabled to process incomplete constraint type. rerun with parameter soplex=on." << endl;
-         return false;
-      }
-      newObjective.reSize(numberOfVariables);
-      newObjective.reDim(numberOfVariables);
-      newObjective = *row;
-      workinglp.changeObjRational(newObjective);
-
-      if( consense == "G" or consense == "E" )
-         workinglp.setIntParam(SoPlex::OBJSENSE, SoPlex::OBJSENSE_MINIMIZE);
-      else if( consense == "L")
-         workinglp.setIntParam(SoPlex::OBJSENSE, SoPlex::OBJSENSE_MAXIMIZE);
-      else
-         cerr << "Invalid sense: " << consense << endl;
-
-      certificateFile >> tmp;
-
-      while( tmp != "}" )
-      {
-         newActiveDerivations.push_back(stol(tmp));
-
-         certificateFile >> tmp;
-      }
-
-      sort(currentlyActiveDerivations.begin(), currentlyActiveDerivations.end(), less<int>());
-      sort(newActiveDerivations.begin(), newActiveDerivations.end(), less<int>());
-
-      set_difference( currentlyActiveDerivations.begin(), currentlyActiveDerivations.end(),
-                        newActiveDerivations.begin(), newActiveDerivations.end(),
-                        inserter( toDeleteDerivations, toDeleteDerivations.begin() ) );
-
-      set_difference( newActiveDerivations.begin(), newActiveDerivations.end(),
-                        currentlyActiveDerivations.begin(), currentlyActiveDerivations.end(),
-                        inserter( toAddDerivations, toAddDerivations.begin() ) );
-
-      currentlyActiveDerivations = newActiveDerivations;
-      return completeLin(workinglp, toDeleteDerivations, toAddDerivations, label);
-   }
-
-   else if( numberOfCoefficients == "weak")
-      return completeWeakDomination(row, consense, rhs);
-
-   else
-   {
-      intOfCoefficients = atoi(numberOfCoefficients.c_str());
-      if( !isdigit(numberOfCoefficients[0]) )
-      {
-         cerr << "number of coefficients is not a number " << numberOfCoefficients << endl;
-         certificateFile.ignore(numeric_limits<streamsize>::max(), '\n');
-         return false;
-      }
-      completedFile << " " << intOfCoefficients;
-
-      for( int i = 0; i < intOfCoefficients; ++i)
-      {
-         certificateFile >> idx >> val;
-         completedFile << " " << idx << " " << val;
-      }
-
-      certificateFile >> bracket;
-      if( bracket != "}" )
-      {
-         cerr << "Expecting } but read instead" << bracket << endl;
-         return  false;
-      }
-
-      completedFile << " " << bracket;
-      certificateFile >> derhir;
-      completedFile << " " << derhir;
-      return true;
-
-   }
-}
-
-
-bool derisrnd()
-{
-   long numberOfCoefficients, idx, dernr;
-   Rational val;
-   string bracket;
-
-
-   certificateFile >> numberOfCoefficients;
-   completedFile << " " << numberOfCoefficients;
-
-   for( int i = 0; i < numberOfCoefficients; ++i )
-   {
-      certificateFile >> idx >> val;
-      completedFile << " " << idx << " " << val;
-   }
-
-   certificateFile >> bracket;
-   if( bracket != "}" )
-   {
-      cerr << "Expecting } but read instead" << bracket << endl;
-      return  false;
-   }
-   else
-   {
-      completedFile << " " + bracket;
-      certificateFile >> dernr;
-      completedFile << " " << dernr;
-      return true;
-   }
-}
-
-
-bool derisuns()
-{
-   long i1, l1, i2, l2, derHierarchy;
-   string bracket;
-
-   certificateFile >> i1 >> l1 >> i2 >> l2;
-   completedFile << " " << i1 << " " << l1 <<
-                    " " << i2 << " " << l2;
-
-   certificateFile >> bracket;
-   if( bracket != "}" )
-   {
-      cerr << "Expecting } but read instead" << bracket << endl;
-      return  false;
-   }
-   else
-   {
-      completedFile << " " + bracket;
-      certificateFile >> derHierarchy;
-      completedFile << " " << derHierarchy;
-      return true;
-   }
-}
-
-
-// Completes "incomplete" derivations
-// Locally modifies LP and solves
-bool completeLin(SoPlex &workinglp, vector<long> &derToDelete, vector<long> &derToAdd, string &label)
+bool completeIncomplete( SoPlex &localLP,  bimap& LProwCertificateMap, vector<long> &newActiveDerivations, string label, stringstream& completedLine,
+                        stringstream &baseLine )
 {
    string tmp;
    long numrows, derHierarchy;
-   DSVectorPointer row(make_shared<DSVectorRational>());
-   int consense, normalizedSense;
-   Rational rhs;
-   lpIndex lpData;
+   int normalizedSense;
+   int lpIndex;
    Rational normalizedRhs;
-   // vector<long> rowsToDelete;
-   const int lpSize = workinglp.numRows();
-
-   assert(usesoplex);
 
    DVectorRational dualmultipliers(0);
    DVectorRational reducedcosts(0);
 
    vector<long>::iterator derIterator;
+
+   vector<long> previousActiveDerivations;
+   vector<long> toDeleteDerivations;
+   vector<long> toAddDerivations;
+
+   const int lpSize = localLP.numRows();
 
    // Create array for SoPlex removeRowsRational in order to delete Rows
    int idxShift[lpSize];
@@ -1558,164 +1669,136 @@ bool completeLin(SoPlex &workinglp, vector<long> &derToDelete, vector<long> &der
       idxShift[i] = 0;
    }
 
+   // retrieve all active cert indices from map
+   for( auto it = LProwCertificateMap.left.begin(); it != LProwCertificateMap.left.end(); it++ )
+   {
+      previousActiveDerivations.push_back(it->second);
+   }
+
+   // sort both vectors
+   sort(previousActiveDerivations.begin(), previousActiveDerivations.end(), less<int>());
+   sort(newActiveDerivations.begin(), newActiveDerivations.end(), less<int>());
+
+   // compute the set difference
+   set_difference( previousActiveDerivations.begin(), previousActiveDerivations.end(),
+                        newActiveDerivations.begin(), newActiveDerivations.end(),
+                        inserter( toDeleteDerivations, toDeleteDerivations.begin() ) );
+
+   set_difference( newActiveDerivations.begin(), newActiveDerivations.end(),
+                     previousActiveDerivations.begin(), previousActiveDerivations.end(),
+                     inserter( toAddDerivations, toAddDerivations.begin() ) );
+
    // Delete rows and reset bounds from LP which are not used in the current completion attempt
    // This is done by setting the corresponding entries in idxShift to -1
-   for( derIterator = derToDelete.begin(); derIterator != derToDelete.end(); derIterator++)
+   for( derIterator = toDeleteDerivations.begin(); derIterator != toDeleteDerivations.end(); derIterator++)
    {
-      lpData = correspondingLpData[*derIterator];
-
-      if( lpData.isRowId == true)
-      {
-         idxShift[lpData.idx] = -1;
-
-      }
-      else
-      {
-         Rational originalUpperBound = get<0>(upperBounds[lpData.idx]);
-         Rational originalLowerBound = get<0>(lowerBounds[lpData.idx]);
-
-         workinglp.changeUpperRational( lpData.idx, infinity );
-         workinglp.changeLowerRational( lpData.idx, -infinity );
-
-         correspondingCertRow[{lpData.idx, false}] = originalCertRow[{lpData.idx, false}];
-         correspondingLpData.erase(*derIterator);
-      }
+      lpIndex = LProwCertificateMap.right.at(*derIterator);
+      idxShift[lpIndex] = -1;
    }
 
    // Use RemoveRowsRational from SoPlex
    // gets an array of length numRows with indices -1 indicating that row is to be deleted
    // Returns array with new position of row and -1 if row is deleted
-   workinglp.removeRowsRational( idxShift );
+   localLP.removeRowsRational( idxShift );
 
    // sizeof(idxShift)/sizeof(int) is necessary to avoid usage of additional includes
    for( int i = 0; i < sizeof(idxShift)/sizeof(int); ++i)
    {
       if( i != idxShift[i] )
       {
-         lpIndex lpData = {i, true};
-         lpIndex updatedLpData = {idxShift[i], true};
          if( idxShift[i] == -1 )
          {
-            correspondingCertRow.erase({lpData});
-            correspondingLpData.erase(i);
+            LProwCertificateMap.left.erase(i);
          }
          else
          {
-            auto entry = correspondingCertRow.find(lpData);
-            if( entry != end(correspondingCertRow) )
-            {
-               auto const value = std::move(entry->second);
-               correspondingCertRow.erase(entry);
-               correspondingLpData.erase(value.first);
-               correspondingCertRow.insert({updatedLpData, std::move(value)});
-               correspondingLpData[value.first] = updatedLpData;
-            }
+            long updatedCertIndex = LProwCertificateMap.left.at(i);
+            LProwCertificateMap.left.erase(i);
+            LProwCertificateMap.insert( bimap::value_type( idxShift[i], updatedCertIndex ) );
          }
       }
    }
 
-
    // Update LP with new derivations to be used
-   for( derIterator = derToAdd.begin(); derIterator != derToAdd.end(); derIterator++ )
+   for( derIterator = toAddDerivations.begin(); derIterator != toAddDerivations.end(); derIterator++ )
    {
-      auto &missingCon = constraints[*derIterator];
-      auto ncurrent = workinglp.numRowsRational();
-      row = get<0>(missingCon);
-      consense = get<2>(missingCon);
-      rhs = get<1>(missingCon);
+      assert(localLP.numRows() > 0);
+      assert(*derIterator < constraints.size());
+      auto& missingCon = constraints[*derIterator];
+      auto ncurrent = localLP.numRowsRational();
+      DSVectorRational row = *missingCon.vec;
+      Rational rhs = missingCon.side;
+      int consense = missingCon.sense;
 
       if( consense == 0 )
-         workinglp.addRowRational( LPRowRational( rhs, *row, rhs ) );
+            localLP.addRowRational( LPRowRational( rhs, row, rhs ) );
       else if( consense == -1 )
-         workinglp.addRowRational( LPRowRational( -infinity, *row, rhs ) );
+            localLP.addRowRational( LPRowRational( -infinity, row, rhs ) );
       else if( consense == 1 )
-         workinglp.addRowRational( LPRowRational( rhs, *row, infinity ) );
+            localLP.addRowRational( LPRowRational( rhs, row, infinity ) );
       else
          return false;
 
-      correspondingCertRow[{ workinglp.numRows()-1, true }] = make_pair( *derIterator, *derIterator );
-      correspondingLpData[*derIterator] = {workinglp.numRows()-1 , true};
-      assert(ncurrent + 1 == workinglp.numRowsRational());
+      LProwCertificateMap.insert( bimap::value_type( localLP.numRows()-1, *derIterator ));
+      assert(ncurrent + 1 == localLP.numRowsRational());
    }
 
-
-
    SPxSolver::Status stat;
-   numrows = workinglp.numRows();
+   numrows = localLP.numRows();
    dualmultipliers.reDim(numrows);
    reducedcosts.reDim(numberOfVariables);
 
-   stat = workinglp.optimize();
+   stat = localLP.optimize();
 
    if( stat == SPxSolver::OPTIMAL )
    {
-      workinglp.getDualRational(dualmultipliers);
-      workinglp.getRedCostRational(reducedcosts);
+      localLP.getDualRational(dualmultipliers);
+      localLP.getRedCostRational(reducedcosts);
 
-      printReasoningToCertificate(dualmultipliers, reducedcosts);
-      completedFile << " }";
-      certificateFile >> derHierarchy;
-      completedFile << " " << derHierarchy;
-
+      printReasoningToLine(dualmultipliers, reducedcosts, completedLine, LProwCertificateMap);
+      completedLine<< " }";
    }
    else if( stat == SPxSolver::INFEASIBLE )
    {
-      workinglp.getDualFarkasRational(dualmultipliers);
-      workinglp.getRedCostRational(reducedcosts);
+      localLP.getDualFarkasRational(dualmultipliers);
+      localLP.getRedCostRational(reducedcosts);
 
-      printReasoningToCertificate(dualmultipliers, reducedcosts);
-      completedFile << " }";
-      certificateFile >> derHierarchy;
-      completedFile << " " << derHierarchy;
+      printReasoningToLine(dualmultipliers, reducedcosts, completedLine, LProwCertificateMap);
+      completedLine<< "}";
 
    }
    else
    {
-      workinglp.writeFileRational("error.lp", nullptr, nullptr, nullptr);
       cerr << "Warning: Completion attempt of Derivation "<< label <<" returned with status " << stat << ".\n";
       cerr << "Skip and continue completion of certificate.\n";
-      completedFile << " incomplete";
-      for( auto i: currentlyActiveDerivations )
-         completedFile << " " << i;
-      return false;
+      completedLine << " incomplete";
+      for( auto i: newActiveDerivations )
+         completedLine << " " << i;
+
    }
    return true;
 }
 
-bool printReasoningToCertificate(DVectorRational &dualmultipliers, DVectorRational &reducedcosts)
+bool printReasoningToLine(DVectorRational &dualmultipliers, DVectorRational &reducedcosts, stringstream& completedLine, bimap& LProwCertificateMap)
 {
-   DSVectorRational reasoningRow(0);
    long certIndex;
-   Rational correctionFactor;
+
+   completedLine << " " << reducedcosts.dim() + dualmultipliers.dim();
 
    for( int i= 0; i < reducedcosts.dim(); ++i )
    {
-      if( sign(reducedcosts[i]) < 0 )
-         certIndex = correspondingCertRow[{i, false}].second;
-      else
-         certIndex = correspondingCertRow[{i, false}].first;
-
-      reasoningRow.add(certIndex, reducedcosts[i] );
+      completedLine << " " << i << " " << reducedcosts[i].str();
    }
 
    for( int i = 0; i < dualmultipliers.dim(); ++i )
    {
-
-      certIndex = correspondingCertRow[{i, true}].first;
-      if( get<0>(constraints[certIndex])->dim() == 1 )
-         correctionFactor = get<0>(constraints[certIndex])->value(0);
+      auto res =  LProwCertificateMap.left.find(i);
+      if( res != LProwCertificateMap.left.end() )
+         certIndex = res->second;
       else
-         correctionFactor = 1;
+         certIndex = origConsCertIndex[i];
 
-      reasoningRow.add(certIndex, dualmultipliers[i]);
-
-   }
-   completedFile << " " << reasoningRow.size();
-   reasoningRow.sort();
-
-   for( size_t i = 0; i < reasoningRow.size(); i++ )
-   {
-      completedFile << " " << reasoningRow.index(i) << " " << reasoningRow[reasoningRow.index(i)];
+      completedLine << " " << certIndex << " " << dualmultipliers[i].str();
    }
 
    return true;

@@ -2,7 +2,7 @@
 
 ## About
 
-*VIPR* is new a software project to verify, in exact rational arithmetic, the correctness of results computed by mixed-integer linear programming solvers.  It is based on an elementary file format for LP-based branch-and-cut certificates proposed in the article
+*VIPR* is a software project to verify, in exact rational arithmetic, the correctness of results computed by mixed-integer linear programming solvers.  It is based on an elementary file format for LP-based branch-and-cut certificates proposed in the article
 
 > Kevin K.H. Cheung, Ambros Gleixner, and Daniel E. Steffy: [Verifying Integer Programming Results](http://dx.doi.org/10.1007/978-3-319-59250-3_13). In: F. Eisenbrand and J. Koenemann, eds., Integer Programming and Combinatorial Optimization: 19th International Conference, IPCO 2017, pp. 148-160, 2017, [`doi:10.1007/978-3-319-59250-3_13`](http://dx.doi.org/10.1007/978-3-319-59250-3_13).
 
@@ -16,12 +16,14 @@ Please cite both publications if you use VIPR in your work.
 
 ## Software
 
-*VIPR* currently provides four C++ scripts, each being called from a terminal together with an appropriate `.vipr` certificate file:
+*VIPR* currently provides six C++ scripts, each being called from a terminal together with an appropriate `.vipr` certificate file:
 
 - `vprchck`: A program that verifies mixed-integer linear programming certificate files specified in the `.vipr` file format.
+- `vprchck_parallel`: A multi-threaded version of `viprchk`. To ensure highest confidence we continue to support the old single-threaded version.
 - `vipr2html`: A program that converts `.vipr` certificate files to a human readable HTML format (not recommended for large files).
 - `viprttn`: A program that tightens and improves `.vipr` files, potentially reducing their size and allowing for easier checking.
-- `viprcomp`: A program that completes incomplete `.vipr` certificate files using the exact LP solver `SoPlex`.
+- `viprcomp`: A program that completes incomplete `.vipr` certificate files in parallel using the exact LP solver `SoPlex`.
+- `viprincomp`: A program that makes derivations incomplete. Only useful for testing `viprcomp`.
 
 ## File format specification `.vipr`
 
