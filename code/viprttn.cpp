@@ -1,7 +1,7 @@
 /*
 *
 *   Copyright (c) 2016 Kevin K. H. Cheung
-*   Copyright (c) 2022 Zuse Institute Berlin
+*   Copyright (c) 2024 Zuse Institute Berlin
 *
 *   Permission is hereby granted, free of charge, to any person obtaining a
 *   copy of this software and associated documentation files (the "Software"),
@@ -29,7 +29,7 @@
 #include <functional>
 
 #define VERSION_MAJOR 1
-#define VERSION_MINOR 1
+#define VERSION_MINOR 0
 
 using namespace std;
 
@@ -246,32 +246,85 @@ bool firstPass( ifstream &pf, int &numCon, vector<Node> &nodes, streampos &fposD
    {
       bool rval = true;
 
-      string input, val;
+      string input, val, tmp;
       int k, index;
 
-      pf >> k;
+      pf >> tmp;
 
-      if( pf.fail() )
+      if( tmp == "weak" )
       {
-         cerr << "Failed to read number of coefficients" << endl;
-         rval = false;
-      }
-      else
-      {
-         for( int i = 0; i < k; ++i )
+         // forward until we hit linear derivation
+         while( tmp != "}" )
          {
-            pf >> index >> val;
-            if( pf.fail() )
+            pf >> tmp;
+         }
+         pf >> k;
+         if( pf.fail() )
+         {
+            cerr << "Failed to read number of coefficients" << endl;
+            rval = false;
+         }
+         else
+         {
+            for( int i = 0; i < k; ++i )
             {
-               cerr << "Failed reading coefficient " << i << endl;
-               rval = false;
-         break;
+               pf >> index >> val;
+               if( pf.fail() )
+               {
+                  cerr << "Failed reading coefficient " << i << endl;
+                  rval = false;
+                  break;
+               }
+               else if( index >= numCon )
+               {
+                  index -= numCon;
+                  nodes[ derConIdx ].needs.push_back( index );
+                  nodes[ index ].neededBy.push_back( derConIdx );
+               }
             }
-            else if( index >= numCon )
+         }
+      }
+      else if( tmp == "incomplete")
+      {
+         pf >> tmp;
+         while( tmp != "}" )
+         {
+            index = atoi(tmp.c_str());
+            if( index >= numCon )
             {
                index -= numCon;
                nodes[ derConIdx ].needs.push_back( index );
                nodes[ index ].neededBy.push_back( derConIdx );
+            }
+            pf >> tmp;
+         }
+         pf.putback( '}' );
+      }
+      else
+      {
+         k = atoi(tmp.c_str());
+         if( pf.fail() )
+         {
+            cerr << "Failed to read number of coefficients" << endl;
+            rval = false;
+         }
+         else
+         {
+            for( int i = 0; i < k; ++i )
+            {
+               pf >> index >> val;
+               if( pf.fail() )
+               {
+                  cerr << "Failed reading coefficient " << i << endl;
+                  rval = false;
+            break;
+               }
+               else if( index >= numCon )
+               {
+                  index -= numCon;
+                  nodes[ derConIdx ].needs.push_back( index );
+                  nodes[ index ].neededBy.push_back( derConIdx );
+               }
             }
          }
       }
@@ -437,11 +490,9 @@ bool firstPass( ifstream &pf, int &numCon, vector<Node> &nodes, streampos &fposD
 
    pf >> numDer;
 
-#ifndef NDEBUG
    cout << "numCon = " << numCon << endl;
    cout << "numDer = " << numDer << endl;
    cout << "fposDer = " << fposDer << endl;
-#endif
 
    nodes.resize( numDer );
 
@@ -454,7 +505,7 @@ bool firstPass( ifstream &pf, int &numCon, vector<Node> &nodes, streampos &fposD
 
       if( pf.fail() )
       {
-         cerr << "Error reading " << label << endl;
+         cerr << "Error reading " << i << " " << label << endl;
          goto TERMINATE;
       }
 
@@ -592,30 +643,91 @@ bool writeReorderedDER( ifstream &pf, ofstream &optF, streampos fposDer, int &nu
       }
       else
       {
-         k = atoi(input.c_str());
-
-         optF << " " << k;
-
-         for( int i = 0; i < k; ++i )
+         if(input == "weak")
          {
-            pf >> index >> val;
-            if( pf.fail() )
+            // pass over the weak derivation
+            optF << " weak ";
+            while( input != "}" )
             {
-               cerr << "Failed reading coefficient " << i << endl;
-               rval = false;
-         break;
+               pf >> input;
+               optF << " " << input;
             }
-            else
+
+            // now read the linear derivation
+            pf >> k;
+
+            optF << " " << k;
+
+            for( int i = 0; i < k; ++i )
             {
-               if ( (i+1) % 20 == 0) optF << endl;
-
-               if( useNewIdx && index >= numCon )
+               pf >> index >> val;
+               if( pf.fail() )
                {
-                  index -= numCon;
-                  index = nodes[ index ].newIdx + numCon;
+                  cerr << "Failed reading coefficient " << i << endl;
+                  rval = false;
+            break;
                }
+               else
+               {
+                  // if ( (i+1) % 20 == 0) optF << endl;
 
-               optF << "  " << index << " " << val;
+                  if( useNewIdx && index >= numCon )
+                  {
+                     index -= numCon;
+                     index = nodes[ index ].newIdx + numCon;
+                  }
+
+                  optF << "  " << index << " " << val;
+               }
+            }  
+         }
+         else if(input == "incomplete")
+         {
+            optF << " incomplete ";
+            while(input != "}")
+            {
+               pf >> input;
+               if(input != "}")
+               {
+                  index = atoi(input.c_str());
+                  if( useNewIdx && index >= numCon )
+                  {
+                     index -= numCon;
+                     index = nodes[ index ].newIdx + numCon;
+                  }
+
+                  optF << "  " << index;
+               }
+            }
+            pf.putback( '}' );
+         }
+         else
+         {
+            k = atoi(input.c_str());
+
+            optF << " " << k;
+
+            for( int i = 0; i < k; ++i )
+            {
+               pf >> index >> val;
+               if( pf.fail() )
+               {
+                  cerr << "Failed reading coefficient " << i << endl;
+                  rval = false;
+            break;
+               }
+               else
+               {
+                  // if ( (i+1) % 20 == 0) optF << endl;
+
+                  if( useNewIdx && index >= numCon )
+                  {
+                     index -= numCon;
+                     index = nodes[ index ].newIdx + numCon;
+                  }
+
+                  optF << "  " << index << " " << val;
+               }
             }
          }
       }
@@ -635,6 +747,8 @@ bool writeReorderedDER( ifstream &pf, ofstream &optF, streampos fposDer, int &nu
 
    // copy_n(istreambuf_iterator<char>(pf), fposDer, ostreambuf_iterator<char>(optF));  This doesn't compile in Ubuntu!!!
 
+   cout << "NDER = " << L.size() << endl;
+
    optF << " " << L.size() << endl;
 
    for(auto i : L )
@@ -645,7 +759,7 @@ bool writeReorderedDER( ifstream &pf, ofstream &optF, streampos fposDer, int &nu
       pf >> label >> sense >> tmp;
       if( pf.fail() )
       {
-         cerr << "Error reading " << label << endl;
+         cerr << "Error reading " << label << " " << i << endl;
          goto TERMINATE;
       }
 

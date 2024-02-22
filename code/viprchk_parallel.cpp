@@ -1,7 +1,7 @@
 /*
 *
-*   Copyright (c) 2016 Kevin K. H. Cheung
-*   Copyright (c) 2024 Zuse Institute Berlin
+*
+*   Copyright (c) 2016 Kevin K. H. Cheung, 2024 Zuse Institute Berlin
 *
 *   Permission is hereby granted, free of charge, to any person obtaining a
 *   copy of this software and associated documentation files (the "Software"),
@@ -23,6 +23,7 @@
 *
 */
 
+#include <algorithm>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -30,16 +31,19 @@
 #include <vector>
 #include <cassert>
 #include <gmpxx.h>
-#include <gmp.h>
 #include <cstdio>
-#include <ctime>
-#include <chrono>
 #include <memory>
+#include <thread>
 
+// Timing
+#include <sys/time.h>
+
+// Parallelization
+#include <tbb/tbb.h>
 
 // Version control
 #define VERSION_MAJOR 1
-#define VERSION_MINOR 1
+#define VERSION_MINOR 0
 
 // Avoid using namespace std to avoid non-obvious complications (ambiguities)
 using std::map;
@@ -192,6 +196,7 @@ class Constraint
 
 // Globals
 const SVectorBool emptyList;
+unsigned int nthreads = std::thread::hardware_concurrency();
 
 int numberOfVariables = 0; // number of variables
 int numberOfConstraints = 0; // number of constraints
@@ -203,6 +208,12 @@ vector<string> variable; // variable names
 vector<Constraint> constraint; // all the constraints, including derived ones
 vector<SVectorGMP> solution; // all the solutions for checking feasibility
 ifstream certificateFile;   // certificate file stream
+
+vector<SVectorGMP> mults;
+vector<Constraint> toCheck;
+vector<size_t> indicesToChk;
+vector<int> correspondingSenses;
+vector<DerivationType> correspondingDerType;
 
 RelationToProveType relationToProveType;
 mpq_class bestObjectiveValue; // best objective function value of specified solutions
@@ -216,7 +227,6 @@ Constraint relationToProve; // constraint to be derived in the case of bound che
 shared_ptr<SVectorGMP> objectiveCoefficients(make_shared<SVectorGMP>()); // obj coefficients
 bool objectiveIntegral;
 
-
 // Forward declaration
 bool checkVersion(string ver);
 bool processVER();
@@ -226,7 +236,10 @@ bool processOBJ();
 bool processCON();
 bool processRTP();
 bool processSOL();
-bool processDER();
+bool seqCheck_Der();
+bool parCheck_Der();
+bool chkLinearCombinations(size_t i);
+// bool processDER();
 
 bool readMultipliers(int &sense, SVectorGMP &mult);
 bool readConstraintCoefficients(shared_ptr<SVectorGMP> &v);
@@ -242,22 +255,85 @@ mpq_class scalarProduct(shared_ptr<SVectorGMP> u, shared_ptr<SVectorGMP> v);
 bool canUnsplit(  Constraint &toDer, const int con1, const int a1, const int con2,
                   const int a2, SVectorBool &assumptionList);
 
-bool readLinComb( int &sense, mpq_class &rhs, shared_ptr<SVectorGMP> coef,
-                  int currConIdx, SVectorBool &amsList);
+bool readLinComb( mpq_class &rhs, shared_ptr<SVectorGMP> coef,
+                  int currConIdx, SVectorBool &amsList, SVectorGMP &mult);
+
+
+static double getTimeSecs(timeval start, timeval end)
+{
+   auto seconds = end.tv_sec - start.tv_sec;
+   auto microseconds = end.tv_usec - start.tv_usec;
+   auto clock_dur = seconds + microseconds*1e-6;
+   return clock_dur;
+}
+
+// Set usage options
+static void printUsage(const char* const argv[], int idx)
+{
+   const char* usage =
+      "general options:\n"
+      "  --threads=<number>     maximal number of threads to use \n"
+      "\n";
+   if(idx <= 0)
+      cerr << "missing input file\n\n";
+   else
+      cerr << "invalid option \"" << argv[idx] << "\"\n\n";
+
+   cerr << "usage: " << argv[0] << " " << "[options] <certificateFile>\n"
+             << "  <certificateFile>               .vipr file to be completed\n\n"
+             << usage;
+}
 
 // Main function
 int main(int argc, char *argv[])
 {
 
    int returnStatement = -1;
+   int optidx;
+   const char* certificateFileName;
 
-   if( argc != 2 )
+
+    if( argc == 0 )
    {
-      cerr << "Usage: " << argv[0] << " <certificate filename>\n";
-      return returnStatement;
+      printUsage(argv, -1);
+      return 1;
    }
 
-   certificateFile.open(argv[1]);
+   // read arguments from command line
+   for(optidx = 1; optidx < argc; optidx++)
+   {
+      char* option = argv[optidx];
+
+      // we reached <certificateFile>
+      if(option[0] != '-')
+      {
+         certificateFileName = argv[optidx];
+         continue;
+      }
+
+      switch(option[1])
+      {
+      case '-' :
+         option = &option[2];
+
+         // set verbosity of SoPlex
+         if(strncmp(option, "threads=", 8) == 0)
+         {
+            char* str = &option[8];
+            if( isdigit(option[8]))
+            {
+               nthreads = std::min(atoi(str), (int) nthreads);
+            }
+         }
+         else
+         {
+            printUsage(argv, optidx);
+            return 1;
+         }
+      }
+   }
+
+   certificateFile.open(certificateFileName);
 
    if( certificateFile.fail() )
    {
@@ -265,7 +341,9 @@ int main(int argc, char *argv[])
       return returnStatement;
    }
 
-   double start_cpu_tm = clock();
+   // double start_cpu_tm = get_wall_time();
+   struct timeval start, end, startpar;
+   gettimeofday( &start, 0 );
    if( processVER() )
       if( processVAR() )
          if( processINT() )
@@ -273,15 +351,30 @@ int main(int argc, char *argv[])
                if( processCON() )
                   if( processRTP() )
                      if( processSOL() )
-                        if( processDER() ) {
-                           returnStatement = 0;
-                           double cpu_dur = (clock() - start_cpu_tm)
-                                            / (double)CLOCKS_PER_SEC;
-
-                           cout << endl << "Completed in " << cpu_dur
-                                << " seconds (CPU)" << endl;
+                     {
+                        if( seqCheck_Der() )
+                        {
+                           gettimeofday( &end, 0 );
+                           cout << endl << "Sequential part took " << getTimeSecs(start, end)
+                                 << " seconds (Wall Clock)" << endl;
+                           gettimeofday( &startpar, 0 );
+                           if( parCheck_Der() )
+                           {
+                              returnStatement = 0;
+                              gettimeofday( &end, 0 );
+                              cout << endl << "Parallel part took " << getTimeSecs(startpar, end)
+                                   << " seconds (Wall Clock)" << endl;
+                              cout << endl << "Completed in " << getTimeSecs(start, end)
+                                   << " seconds (Wall Clock)" << endl;
+                           }
                         }
-
+                        else
+                        {
+                           gettimeofday( &end, 0 );
+                           cout << endl << "Completed in " << getTimeSecs(start, end)
+                                << " seconds (Wall Clock)" << endl;
+                        }
+                     }
    return returnStatement;
 }
 
@@ -475,7 +568,6 @@ bool processOBJ()
    string section;
 
    certificateFile >> section;
-
 
    // Check section
    if( section != "OBJ" )
@@ -817,19 +909,14 @@ TERMINATE:
    return returnStatement;
 }
 
-// Processes derived constraints
-// Checks derivation types and derived constraints
-// Finally confirms or rejects Solution and/or relation to prove
-// Error if wrong format, derived constraints differ from given
-bool processDER()
+
+// Sequentially reads all derivations
+// Simultaniously checks everything except for LIN and RND
+bool seqCheck_Der()
 {
-
-   cout << endl << "Processing DER section..." << endl;
-
-   bool returnStatement = false;
+   cout << endl << "Reading DER section..." << endl;
 
    string section;
-
    certificateFile >> section;
 
    if( section != "DER" )
@@ -862,8 +949,9 @@ bool processDER()
    mpq_class rhs;
 
    for( int i = 0; i < numberOfDerivations; ++i )
-   {
-      shared_ptr<SVectorGMP> coef(make_shared<SVectorGMP>());
+      {
+         shared_ptr<SVectorGMP> coef(make_shared<SVectorGMP>());
+
 
       if( !readConstraint(label, sense, rhs, coef) )
       {
@@ -898,18 +986,12 @@ bool processDER()
       // The constraint to be derived
       Constraint toDer(label, sense, rhs, coef, (derivationType == DerivationType::ASM), emptyList);
 
-#ifdef MORE_DEBUG_OUTPUT
-      cout << numberOfConstraints + i << " - deriving..." << label << endl;
-#endif
-
       SVectorBool assumptionList;
 
       int newConIdx = constraint.size();
 
       switch( derivationType )
       {
-
-         // Assumption, i.e. set of assumptions only contains index of constraint
          case DerivationType::ASM:
             assumptionList[ newConIdx ] = true;
             certificateFile >> bracket;
@@ -920,52 +1002,45 @@ bool processDER()
                return false;
             }
             break;
-         // Linear combination or rounding
          case DerivationType::LIN:
          case DerivationType::RND:
             {
-               shared_ptr<SVectorGMP> coefDer(make_shared<SVectorGMP>());
-               mpq_class rhsDer;
                int senseDer;
+               SVectorGMP mult;
 
-              if( !readLinComb(senseDer, rhsDer, coefDer, newConIdx, assumptionList) )
-                 return false;
+               if( !readMultipliers(senseDer, mult) )
+               {
+                  return false;
+               }
+
+               // Merge assumptionLists
+               for( auto it = mult.begin(); it != mult.end(); ++it )
+               {
+                  auto index = it->first;
+                  auto a = it->second;
+
+                  auto myassumptionList = constraint[index].getassumptionList();
+
+                  for( auto it2 = myassumptionList.begin(); it2 != myassumptionList.end(); ++it2 )
+                     assumptionList[it2->first] = true;
+               }
 
                certificateFile >> bracket;
-
                if( bracket != "}" )
                {
                   cerr << "Expecting } but read instead " << bracket << endl;
                   return false;
                }
 
-               Constraint derived("", senseDer, rhsDer, coefDer, toDer.isAssumption(),
-                                           toDer.getassumptionList());
-
-
-               if( derivationType == DerivationType::RND )   // round the coefficients
-                  if( !derived.round() )
-                     return false;
-
-
-               // check the from reason derived constraint against the given
-               if( !derived.dominates(toDer) )
-               {
-                  cout << "Failed to derive constraint " << label << endl;
-                  toDer.print();
-
-                  cout << "Derived instead " << endl;
-                  derived.print();
-
-                  cout << "difference: " << endl;
-                  (derived - toDer).print();
-
-                  return false;
-               }
+               // Store all information from certificate file
+               toDer.coefSVec()->compactify();
+               toCheck.push_back(toDer);
+               indicesToChk.push_back(newConIdx);
+               correspondingDerType.push_back(derivationType);
+               correspondingSenses.push_back(senseDer);
+               mults.push_back(mult);
             }
             break;
-
-            // Unsplit
          case DerivationType::UNS:
             {
                int con1, asm1, con2, asm2;
@@ -1039,92 +1114,156 @@ bool processDER()
             return false;
             break;
       }
-
       // Set the list of assumptions
       toDer.setassumptionList(assumptionList);
 
-      // Constraint hierarchy handling (??)
+      // Constraint hierarchy handling
       certificateFile >> refIdx;
       toDer.setMaxRefIdx(refIdx);
+
+      // Constraint trashing?
+
       constraint.push_back(toDer);
-
-      if( i < numberOfDerivations - 1 ) // Never trash last constraint
-         if( (refIdx >= 0) && (refIdx < int(constraint.size())) )
-         {
-             constraint.back().trash();
-         }
-
-#ifdef MORE_DEBUG_OUTPUT
-      toDer.print();
-#endif
-   }
-
-   cout << endl;
-
-   auto assumptionList = constraint.back().getassumptionList();
-
-
-   // Final result
-   if( assumptionList != emptyList )
+      }
+   auto lastAssumptionList = constraint.back().getassumptionList();
+   if( lastAssumptionList != emptyList )
    {
       cout << "Final derived constraint undischarged assumptions:" << endl;
-      for( auto it = assumptionList.begin(); it != assumptionList.end(); ++it )
+      for( auto it = lastAssumptionList.begin(); it != lastAssumptionList.end(); ++it )
       {
          auto index = it->first;
 
          cout << index << ": " << constraint[index].label() << endl;
       }
+      return false;
    }
-   else
-   {
-      if( relationToProveType == RelationToProveType::INFEAS )
+
+   return true;
+}
+
+
+// Calls parallelized checking of LIN and RND-type derivations
+// Processes final result
+bool parCheck_Der()
+{
+   tbb::task_arena limited_arena(nthreads);
+   bool returnStatement = true;
+   cout << "Checking Derivations ..." << endl;
+   cout << "Number of remaining linear combinations to check: "
+        << toCheck.size() << endl;
+   cout << "Available threads: " << nthreads << endl;
+   unsigned int grainsize = std::max(1,(int)((toCheck.size()/(2*nthreads))));
+   cout << "Grainsize set to " << grainsize << endl;
+
+   limited_arena.execute([&]{
+      tbb::parallel_for( tbb::blocked_range<size_t>(0, toCheck.size(), grainsize),
+                           [&](tbb::blocked_range<size_t> range)
       {
-         if( constraint.back().isFalsehood() )
+         for( size_t index = range.begin(); index < range.end(); ++index)
          {
-            cout << "Infeasibility verified." << endl;
-            returnStatement = true;
-         }
-         else
-            cout << "Failed to verify infeasibility." << endl;
-      }
-      else if( (isMin && checkLower) || (!isMin && checkUpper) )
-      {
-         if( relationToProve.isTautology() )
-         {
-            cout << "RTP is a tautology." << endl;
-            returnStatement = true;
-         }
-         else if( !constraint.back().dominates(relationToProve) )
-         {
-            if( isMin )
-               cout << "Failed to derive lower bound." << endl;
-            else
-               cout << "Failed to derive upper bound." << endl;
-            cout << "Proved: " << endl;
-            constraint.back().print();
-            cout << "Instead of: " << endl;
-            relationToProve.print();
-      }
-         else
-         {
-            if( numberOfSolutions ) {
-               cout << "Best objval over all solutions: " << bestObjectiveValue << endl;
+            if( !chkLinearCombinations(index) )
+            {
+               tbb::task::current_context()->cancel_group_execution();
+               returnStatement = false;
             }
-
-            cout << "Successfully verified optimal value range "
-                   << (lowerStr == "-inf" ? "(" : "[")
-                   << lowerStr << ", " << upperStr
-                   << (upperStr == "inf" ? ")" : "]")
-                   << "." << endl;
-
-            returnStatement = true;
          }
+      }, tbb::simple_partitioner());
+   });
+
+   if(!returnStatement)
+      return false;
+
+   // Final result
+   if( relationToProveType == RelationToProveType::INFEAS )
+   {
+      if( constraint.back().isFalsehood() )
+      {
+         cout << "Infeasibility verified." << endl;
+         returnStatement = true;
+      }
+      else
+         cout << "Failed to verify infeasibility." << endl;
+   }
+   else if( (isMin && checkLower) || (!isMin && checkUpper) )
+   {
+      if( relationToProve.isTautology() )
+      {
+         cout << "RTP is a tautology." << endl;
+         returnStatement = true;
+      }
+      else if( !constraint.back().dominates(relationToProve) )
+      {
+         if( isMin )
+            cout << "Failed to derive lower bound." << endl;
+         else
+            cout << "Failed to derive upper bound." << endl;
+         cout << "Proved: " << endl;
+         constraint.back().print();
+         cout << "Instead of: " << endl;
+         relationToProve.print();
+   }
+      else
+      {
+         if( numberOfSolutions ) {
+            cout << "Best objval over all solutions: " << bestObjectiveValue << endl;
+         }
+
+         cout << "Successfully verified optimal value range "
+                << (lowerStr == "-inf" ? "(" : "[")
+                << lowerStr << ", " << upperStr
+                << (upperStr == "inf" ? ")" : "]")
+                << "." << endl;
+
+         returnStatement = true;
       }
    }
-
    return returnStatement;
-} // processDER
+}
 
+
+// Checking of LIN and RND-type derivations
+// Checks linear combinations
+// Checks derived constraint against the given
+bool chkLinearCombinations(size_t i)
+{
+   Constraint check = toCheck[i];
+   size_t newConIdx = indicesToChk[i];
+   string label = check.label();
+   SVectorGMP mult = mults[i];
+   SVectorBool assumptionList;
+   shared_ptr<SVectorGMP> coefDer(make_shared<SVectorGMP>());
+   mpq_class rhsDer;
+   int senseDer = correspondingSenses[i];
+   DerivationType derivationType = correspondingDerType[i];
+
+   if( !readLinComb( rhsDer, coefDer, newConIdx, assumptionList, mult ) )
+   {
+      return false;
+   }
+
+   assert(!check.isAssumption());
+   Constraint derived("", senseDer, rhsDer, coefDer, false,
+         check.getassumptionList());
+
+   if( derivationType == DerivationType::RND )   // round the coefficients
+      if( !derived.round() )
+         return false;
+
+   // check the from reason derived constraint against the given
+   if( !derived.dominates(check) )
+   {
+      cout << "Failed to derive constraint " << label << endl;
+      check.print();
+
+      cout << "Derived instead " << endl;
+      derived.print();
+
+      cout << "difference: " << endl;
+      (derived - check).print();
+      return false;
+   }
+   return true;
+}
 
 
 // Classes and Functions
@@ -1151,64 +1290,42 @@ inline mpq_class ceil(const mpq_class &q)
    return result;
 }
 
+
 bool isInteger(const mpq_class &q)
 {
    return (q == floor(q));
 }
 
 
-bool readLinComb( int &sense, mpq_class &rhs, shared_ptr<SVectorGMP> coefficients,
-                  int currentConstraintIndex,SVectorBool &assumptionList)
+bool readLinComb( mpq_class &rhs, shared_ptr<SVectorGMP> coefficients,
+                  int currentConstraintIndex,SVectorBool &assumptionList, SVectorGMP &mult)
 {
    bool returnStatement = true;
 
-   SVectorGMP mult;
+   rhs = 0;
+   coefficients->clear();
+   assumptionList.clear();
 
-#ifndef NDEBUG
-   std::cout << "reading linear combination" << std::endl;
-#endif
-
-   if( !readMultipliers(sense, mult) )
+   for( auto it = mult.begin(); it != mult.end(); ++it )
    {
-      returnStatement = false;
-   }
-   else
-   {
-      rhs = 0;
-      coefficients->clear();
-      assumptionList.clear();
-      mpq_class t;
+      auto index = it->first;
+      auto a = it->second;
 
-      for( auto it = mult.begin(); it != mult.end(); ++it )
+      const Constraint &con = constraint[index];
+
+      if( con.isTrashed() )
       {
-         auto index = it->first;
-         auto a = it->second;
+         cerr << "Accessing trashed constraint: " << con.label() << endl;
+         returnStatement = false;
+      }
+      else
+      {
+         shared_ptr<SVectorGMP> c = constraint[index].coefSVec();
 
-         auto myassumptionList = constraint[index].getassumptionList();
+         for( auto itr = c->begin(); itr != c->end(); ++itr )
+            (*coefficients)[ itr->first ] += a * itr->second;
 
-         for( auto it2 = myassumptionList.begin(); it2 != myassumptionList.end(); ++it2 )
-            assumptionList[it2->first] = true;
-
-         const Constraint &con = constraint[index];
-
-         if( con.isTrashed() )
-         {
-            cerr << "Accessing trashed constraint: " << con.label() << endl;
-            returnStatement = false;
-         }
-         else
-         {
-            shared_ptr<SVectorGMP> c = constraint[index].coefSVec();
-
-            for( auto itr = c->begin(); itr != c->end(); ++itr )
-               (*coefficients)[ itr->first ] += a * itr->second;
-
-            rhs += a * constraint[index].getRhs();
-
-            if( (constraint[index].getMaxRefIdx() <= currentConstraintIndex) &&
-                (constraint[index].getMaxRefIdx() >= 0) )
-               constraint[index].trash();
-         }
+         rhs += a * constraint[index].getRhs();
       }
    }
 
@@ -1238,12 +1355,6 @@ bool readMultipliers(int &sense, SVectorGMP &mult)
 
       mult[index] = a;
 
-#ifndef NDEBUG
-      std::cout << "multiplying " << a << " * " << constraint[index].label() << "( ";
-      constraint[index].print();
-      std::cout << " ) " << std::endl;
-#endif
-
       if( sense == 0 )
       {
          sense = constraint[index].getSense() * sgn(a);
@@ -1263,6 +1374,7 @@ bool readMultipliers(int &sense, SVectorGMP &mult)
 TERMINATE:
    return returnStatement;
 }
+
 
 // Read and store constraints
 bool readConstraintCoefficients(shared_ptr<SVectorGMP> &coefficients)
@@ -1389,8 +1501,8 @@ bool canUnsplit(  Constraint &toDer, const int con1, const int a1,
       SVectorBool asm1 = c1.getassumptionList();
       SVectorBool asm2 = c2.getassumptionList();
 
-      // remove the indices involved in unsplitting
 #ifdef MORE_DEBUG_OUTPUT
+      // remove the indices involved in unsplitting
       if (asm1.find(a1) == asm1.end())
          cout << "Warning: " << a1 << " not present in unsplit" << endl;
       if (asm2.find(a2) == asm2.end())
@@ -1418,7 +1530,9 @@ bool canUnsplit(  Constraint &toDer, const int con1, const int a1,
 #endif
 
       for( auto it = asm2.begin(); it != asm2.end(); ++it ) {
-         assumptionList[it->first] = true;
+         if( assumptionList.find(it->first) != assumptionList.end() ) {
+            assumptionList[it->first] = true;
+         }
       }
 
       if( branchAsm1.isTrashed() )
@@ -1682,7 +1796,7 @@ void Constraint::print() {
    }
    cout << _rhs << " ( " << _rhs.get_d() << " )" << endl;
 
-#ifdef MORE_DEBUG_OUTPUT
+#ifndef NDEBUG
    if( !_isAssumption )
    {
       cout << " -- assumptions: " << endl;
