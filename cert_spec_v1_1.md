@@ -19,13 +19,17 @@ Bound constraints such as $0\leq\beta\leq 1$ are not treated specially.
 ### Rounding
 Suppose that the constraint $a_{i_1}X_{i_1}+\dots+a_{i_p}X_{i_p} \text{sense}\ \beta,$ where `sense` is $\leq$ or $\geq,$ is such that fpr $j=1,\dots, p,a_{i_j}$
 is and integer and is nonzero only if $i_j$ is an integer variable index, then the constraint $a_{i_1}X_{i_1}+\dots+a_{i_p}X_{i_p} \text{sense}\ \beta'$ with
-$$\beta' =
+
+$$
+\beta' =
 \left \{
 \begin{array}{ll}
 \lfloor\beta\rfloor & \text{if sense is } \leq \\
 \lceil\beta\rceil & \text{if sense is } \geq \\
 \end{array}
-\right.$$
+\right.
+$$
+
 is said to be obtained from rounding.
 
 ### Domination of constraints
@@ -148,6 +152,7 @@ where `objsense` is the keyword `min` for minimization or `max` for maximization
 separated by spaces or line breaks where for $j=1,…,k, i_j$ is a variable index and $c_k$ is the objective function coefficient for the variable with index $i_j.$
 
 For example, the `OBJ` section for the problem
+
 $$
 \begin{array}{ll}
 \text{min} & x+y \\
@@ -155,6 +160,7 @@ $$
  & C_2:4x-y\leq 2\\
 \end{array}
 $$
+
 could look like the following
 ```
 OBJ min
@@ -171,11 +177,15 @@ The constraints in this section are assigned indices from $0$ to $m−1$ accordi
 Bound constraints must appear at the beginning of the section **before** the nonbound constraints.
 
 For example, the `CON` section for the problem
-$$\begin{array}{ll}
+
+$$
+\begin{array}{ll}
 \text{min} & x+y \\
 \text{s.t.} & C_1:4x+y\geq 1 \\
  & C_2:4x-y\leq 2\\
-\end{array} $$
+\end{array}
+$$
+
 could look like the following
 ```
 CON 2 0
@@ -204,7 +214,9 @@ RTP range 1 1
 The section begins with
 `SOL s`
 where s is the number of solutions to be verified for feasibility, and then followed by
+
 $S_1 \\ \vdots \\ S_s$
+
 such that for $j=1,…,s, S_j$ is of the form $\text{name } p\ i_1\ v_1\ \cdots\ i_p\ v_p,$ where `name` is the solution name, $p$ is a nonnegative integer, and for $r=1,…,p, i_r$ is a variable index and $v_r$ is the solution value for the variable with index $i_r$. All other variables are assumed to have the value zero.
 At least one of the solutions specified should have objective function value at least the lower bound given in the [RTP section](#rtp-section) in the case of maximization and at most the upper bound given in the [RTP section](rtp-section) in the case of minimization.
 For example, to specify the two solutions $(x,y)=(1,2)$ (which is feasible) and $(x,y)=(0,1)$ (which is optimal) where $x$ has variable index `0` and $y$ has variable index `1`, the `SOL` section could look like this:

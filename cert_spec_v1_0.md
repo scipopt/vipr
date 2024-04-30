@@ -19,13 +19,17 @@ Bound constraints such as $0\leq\beta\leq 1$ are not treated specially.
 ### Rounding
 Suppose that the constraint $a_{i_1}X_{i_1}+\dots+a_{i_p}X_{i_p} \text{sense}\ \beta,$ where `sense` is $\leq$ or $\geq,$ is such that fpr $j=1,\dots, p,a_{i_j}$
 is and integer and is nonzero only if $i_j$ is an integer variable index, then the constraint $a_{i_1}X_{i_1}+\dots+a_{i_p}X_{i_p} \text{sense}\ \beta'$ with
-$$\beta' =
+
+$$
+\beta' =
 \left \{
 \begin{array}{ll}
 \lfloor\beta\rfloor & \text{if sense is } \leq \\
 \lceil\beta\rceil & \text{if sense is } \geq \\
 \end{array}
-\right.$$
+\right.
+$$
+
 is said to be obtained from rounding.
 
 ### Domination of constraints
@@ -142,6 +146,7 @@ where `objsense` is the keyword `min` for minimization or `max` for maximization
 separated by spaces or line breaks where for $j=1,…,k, i_j$ is a variable index and $c_k$ is the objective function coefficient for the variable with index $i_j.$
 
 For example, the `OBJ` section for the problem
+
 $$
 \begin{array}{ll}
 \text{min} & x+y \\
@@ -149,6 +154,7 @@ $$
  & C_2:4x-y\leq 2\\
 \end{array}
 $$
+
 could look like the following
 ```
 OBJ min
@@ -165,11 +171,15 @@ The constraints in this section are assigned indices from $0$ to $m−1$ accordi
 Bound constraints must appear at the beginning of the section **before** the nonbound constraints.
 
 For example, the `CON` section for the problem
-$$\begin{array}{ll}
+
+$$
+\begin{array}{ll}
 \text{min} & x+y \\
 \text{s.t.} & C_1:4x+y\geq 1 \\
  & C_2:4x-y\leq 2\\
-\end{array} $$
+\end{array}
+$$
+
 could look like the following
 ```
 CON 2 0
