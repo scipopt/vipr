@@ -1,5 +1,5 @@
 variables:
-  BOOST_VERSION: 1.70.0
+  BOOST_VERSION: 1.72.0
 
 stages:
   - test
