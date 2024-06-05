@@ -1,5 +1,6 @@
 variables:
   BOOST_VERSION: 1.72.0
+  SOPLEX_REVISION: bugfix-70
 
 stages:
   - test
@@ -23,6 +24,14 @@ stages:
     - cd boost_$(echo ${BOOST_VERSION} | tr . _)
     - ./bootstrap.sh --with-libraries=program_options,serialization,iostreams,regex
     - ./b2 -j6 install
+
+    # clone, build and install soplex
+    - git clone https://github.com/scipopt/soplex.git ${CI_PROJECT_DIR}/soplex
+    - cd ${CI_PROJECT_DIR}/soplex && git checkout ${SOPLEX_REVISION}
+    - mkdir $CI_PROJECT_DIR/soplex-build
+    - cd $CI_PROJECT_DIR/soplex-build
+    - cmake $CI_PROJECT_DIR/soplex -DCMAKE_BUILD_TYPE=Release
+    - make -j && make install
 
     # build and test vipr
     - mkdir -p $CI_PROJECT_DIR/builds/vipr
