@@ -1236,6 +1236,12 @@ bool readMultipliers(int &sense, SVectorGMP &mult)
       mult[index] = a;
 
 #ifndef NDEBUG
+      if( index <= 0 || index >= constraint.size( ) )
+      {
+         cerr << "Index out of range " << index << " (0," << constraint.size() << ")" << endl;
+         returnStatement = false;
+         goto TERMINATE;
+      }
       std::cout << "multiplying " << a << " * " << constraint[index].label() << "( ";
       constraint[index].print();
       std::cout << " ) " << std::endl;
