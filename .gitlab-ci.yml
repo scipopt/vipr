@@ -1,0 +1,52 @@
+variables:
+  BOOST_VERSION: 1.72.0
+  SOPLEX_REVISION: bugfix-70
+
+stages:
+  - test
+
+.build:
+  stage: test
+  image:
+    name: gcc:10
+  tags:
+    - compile
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  before_script:
+    - apt-get update
+    - apt-get install -y cmake libtbb-dev
+
+  script:
+    # download, build and install boost
+    - wget https://boostorg.jfrog.io/artifactory/main/release/${BOOST_VERSION}/source/boost_$(echo ${BOOST_VERSION} | tr . _).tar.gz
+    - tar -xzf boost_$(echo ${BOOST_VERSION} | tr . _).tar.gz
+    - cd boost_$(echo ${BOOST_VERSION} | tr . _)
+    - ./bootstrap.sh --with-libraries=program_options,serialization,iostreams,regex
+    - ./b2 -j6 install
+
+    # clone, build and install soplex
+    - git clone https://github.com/scipopt/soplex.git ${CI_PROJECT_DIR}/soplex
+    - cd ${CI_PROJECT_DIR}/soplex && git checkout ${SOPLEX_REVISION}
+    - mkdir $CI_PROJECT_DIR/soplex-build
+    - cd $CI_PROJECT_DIR/soplex-build
+    - cmake $CI_PROJECT_DIR/soplex -DCMAKE_BUILD_TYPE=Release
+    - make -j && make install
+
+    # build and test vipr
+    - mkdir -p $CI_PROJECT_DIR/builds/vipr
+    - cd $CI_PROJECT_DIR/builds/vipr
+    - export CFLAGS="-Werror"
+    - export CXXFLAGS="-Werror"
+    - cmake $CI_PROJECT_DIR/code ${CMAKE_FLAGS}
+    - make -j6
+
+"build release":
+  extends: .build
+  variables:
+    CMAKE_FLAGS: "-DCMAKE_BUILD_TYPE=Release"
+
+"build debug":
+  extends: .build
+  variables:
+    CMAKE_FLAGS: "-DCMAKE_BUILD_TYPE=Debug"
