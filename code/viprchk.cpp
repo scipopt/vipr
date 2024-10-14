@@ -1231,6 +1231,13 @@ bool readMultipliers(int &sense, SVectorGMP &mult)
 
       certificateFile >> index >> a;
 
+      if( index < 0 )
+      {
+         cerr << "Index is out of bounds " << index << endl;
+         returnStatement = false;
+         goto TERMINATE;
+      }
+
       if( a == 0 ) continue; // ignore 0 multiplier
 
       mult[index] = a;
