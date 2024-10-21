@@ -797,12 +797,12 @@ bool processSOL()
          // Check if bounds are already violated
          if( isMin && checkUpper && bestObjectiveValue > upperBound )
          {
-            cerr << "Upper bound violated." << endl;
+            cerr << "Best objective values (" << bestObjectiveValue<< ")  exceeds upper bound (" << upperBound << ")." << endl;
             goto TERMINATE;
          }
          else if( !isMin && checkLower && bestObjectiveValue < lowerBound )
          {
-            cerr << "Lower bound violated." << endl;
+            cerr << "Best objective values (" << bestObjectiveValue<< ")  exceeds lower bound (" << lowerBound << ")." << endl;
             goto TERMINATE;
          }
       }
