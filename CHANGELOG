@@ -1,0 +1,23 @@
+@page RN11 Release notes for VIPR 1.1
+
+Features:
+-----------
+- handling of incomplete derivations (see Certificate Version 1.1)
+
+Build system
+------------
+
+Fixed bugs
+-----------
+- all constraints are now considered for checking the feasibility of solutions
+- improved error messages
+
+Data structures
+-----------
+
+
+@page RN10 Release notes for VIPR 1.0
+
+Features:
+-----------
+-  verify the correctness of results computed by mixed-integer linear programming solvers by verifying the certificates in VIPR 1.0 format
