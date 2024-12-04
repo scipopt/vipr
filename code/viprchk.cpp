@@ -760,9 +760,9 @@ bool processSOL()
 
             for( int j = 0; j < numberOfConstraints; ++j )
             {
-               if( !satisfies(constraint[i], solutionSpecified) )
+               if( !satisfies(constraint[j], solutionSpecified) )
                {
-                  cerr << "Constraint " << i << " not satisfied." << endl;
+                  cerr << "Constraint " << j << " not satisfied." << endl;
                   goto TERMINATE;
                }
             }
