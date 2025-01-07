@@ -13,14 +13,14 @@ C3  L 3  2  0 -1  1 6
 RTP infeas
 SOL 0
 DER 11
-A1  L 0   1  0 1  { asm } -1
-A2  G 1   1  0 1  { asm } -1
-A3  L 0   1  1 1  { asm } -1
-C4  G 1   0       { lin incomplete 3 5 } 12 % A1 and A3 are active
-A4  G 1   1  1 1  { asm } -1
-C5  G 1   0       { lin incomplete 3 7 } 12 % A4 is active
-C6  G 1/4 1  1 1  { lin incomplete 4 } 10 % A2 is active
-C7  G 1   1  1 1  { rnd 1  9 1 } 11
-C8  G 1   0       { lin incomplete 10 } 13 % C7 is active - not only bound constraints are possible with the incomplete keyword
-C9  G 1   0       { uns 6 5  8 7 } 13
+A1  L 0   1  0 1  { asm } -1                                    % vipr id 3
+A2  G 1   1  0 1  { asm } -1                                    % vipr id 4
+A3  L 0   1  1 1  { asm } -1                                    % vipr id 5
+C4  G 1   0       { lin incomplete 3 5 } 12                     % A1 and A3 are active
+A4  G 1   1  1 1  { asm } -1                                    % vipr id 7
+C5  G 1   0       { lin incomplete 3 7 } 12                     % A4 is active
+C6  G 1/4 1  1 1  { lin incomplete 4 } 10                       % A2 is active
+C7  G 1   1  1 1  { rnd 1  9 1 } 11                             % vipr id 10
+C8  G 1   0       { lin incomplete 10 } 13                      % C7 is active - not only bound constraints are possible with the incomplete keyword
+C9  G 1   0       { uns 6 5  8 7 } 13                           % vipr id 12
 C10 G 1   0       { uns 11 4  12 3 } -1
