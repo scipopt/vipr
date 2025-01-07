@@ -21,13 +21,10 @@ Suppose that the constraint $a_{i_1}X_{i_1}+\dots+a_{i_p}X_{i_p} \text{sense}\ \
 is and integer and is nonzero only if $i_j$ is an integer variable index, then the constraint $a_{i_1}X_{i_1}+\dots+a_{i_p}X_{i_p} \text{sense}\ \beta'$ with
 
 $$
-\beta' =
-\left \{
-\begin{array}{ll}
-\lfloor\beta\rfloor & \text{if sense is } \leq \\
-\lceil\beta\rceil & \text{if sense is } \geq \\
-\end{array}
-\right.
+\beta'=\begin{cases}
+    \lfloor\beta\rfloor & \text{if sense is } \leq, \\
+    \lceil\beta\rceil & \text{if sense is } \geq.
+\end{cases}
 $$
 
 is said to be obtained from rounding.
