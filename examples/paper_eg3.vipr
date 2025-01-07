@@ -1,4 +1,4 @@
-% Example 3 in the paper
+% Example 3 in the paper "Safe and Verified Gomory Mixed Integer Cuts in a Rational MIP Framework"
 VER 1.0
 VAR 2
 x y
