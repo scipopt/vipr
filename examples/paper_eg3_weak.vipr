@@ -1,4 +1,5 @@
-% Example 3 in the paper - weak version that needs to be completed prior to verification
+% Example 3 in the paper "Safe and Verified Gomory Mixed Integer Cuts in a Rational MIP Framework"
+% weak version that needs to be completed prior to verification
 VER 1.1
 VAR 2
 x y
