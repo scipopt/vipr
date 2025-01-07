@@ -1,4 +1,5 @@
-% Example 3 in the paper - weak version that needs to be completed prior to verification
+% Example 3 in the paper "Safe and Verified Gomory Mixed Integer Cuts in a Rational MIP Framework"
+% weak version that needs to be completed prior to verification
 VER 1.1
 VAR 2
 x y
@@ -13,14 +14,15 @@ C3  L 3  2  0 -1  1 6
 RTP infeas
 SOL 0
 DER 11
-A1  L 0   1  0 1  { asm } -1
-A2  G 1   1  0 1  { asm } -1
-A3  L 0   1  1 1  { asm } -1
+A1  L 0   1  0 1  { asm } -1                                    % vipr id 3
+A2  G 1   1  0 1  { asm } -1                                    % vipr id 4
+A3  L 0   1  1 1  { asm } -1                                    % vipr id 5
 C4  G 1   0       { lin weak { 2 U 0 3 0 U 1 5 0 } 2  0 1  5 -29/10 } 12 % both A1 and A3 need to be used to complete
-A4  G 1   1  1 1  { asm } -1
-C5  G 1   0       { lin 3  2 -1/3  3 -1/3  7 2 } 12
-C6  G 1/4 1  1 1  { lin weak { 1 L 0 4 1 } 1  1 -1/4 } } 10 % A2 needs to be used to complete
-C7  G 1   1  1 1  { rnd 1  9 1 } 11
+A4  G 1   1  1 1  { asm } -1                                    % vipr id 7
+C5  G 1   0       { lin 3  2 -1/3  3 -1/3  7 2 } 12             % vipr id 8
+C6  G 1/4 1  1 1  { lin weak { 1 L 0 4 1 } 1  1 -1/4 } } 10     % A2 needs to be used to complete
+C7  G 1   1  1 1  { rnd 1  9 1 } 11                             % vipr id 10
 C8  G 1   0       { lin weak { 0 } 3 1 -1/3  2 -1  10 14/3 } 13 % can be completed using only global bounds
-C9  G 1   0       { uns 6 5  8 7 } 13
+C9  G 1   0       { uns 6 5  8 7 } 13                           % vipr id 12
 C10 G 1   0       { uns 11 4  12 3 } -1
+
