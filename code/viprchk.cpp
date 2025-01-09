@@ -1349,7 +1349,7 @@ TERMINATE:
 bool readConstraint(string &label, int &sense, mpq_class &rhs, shared_ptr<SVectorGMP> &coefficients)
 {
 
-   auto returnStatement = 0;
+   auto returnStatement = false;
    char senseChar;
 
    certificateFile >> label >> senseChar;
