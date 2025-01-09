@@ -1045,6 +1045,9 @@ bool processDER()
       toDer.setMaxRefIdx(refIdx);
       constraint.push_back(toDer);
 
+      // skip to next line
+      certificateFile.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
       if( i < numberOfDerivations - 1 ) // Never trash last constraint
          if( (refIdx >= 0) && (refIdx < int(constraint.size())) )
          {
