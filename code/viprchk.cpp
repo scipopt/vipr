@@ -587,6 +587,9 @@ bool processRTP()
 
    certificateFile >> section;
 
+   while( section[0] == '%' )
+      certificateFile >> section;
+   
    // Checking section
    if( section != "RTP" )
    {
