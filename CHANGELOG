@@ -9,6 +9,7 @@ Build system
 Fixed bugs
 -----------
 - allow comments at end of line in viprchk
+- allow empty and pure comment lines in viprcomp
 
 Data structures
 -----------
