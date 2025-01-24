@@ -201,7 +201,14 @@ bool firstPass( ifstream &pf, int &numCon, vector<Node> &nodes, streampos &fposD
       major = atoi( ver.substr( 0, pos ).c_str() );
       minor = atoi( ver.substr( pos+1, ver.length()-pos ).c_str() );
 
-      if ( (major ==VIPR_VERSION_MAJOR) && (minor <=VIPR_VERSION_MINOR ) )
+      cout << "Certificate format version " << major << "." << minor << " mode: ";
+#ifndef NDEBUG
+      cout << "[debug] [tightening]"<< endl;
+#else
+      cout << "[optimized] [tightening]"<< endl;
+#endif
+
+      if ( (major == VIPR_VERSION_MAJOR) && (minor <= VIPR_VERSION_MINOR ) )
       {
          rstat = true;
       }

@@ -388,9 +388,14 @@ bool checkVersion(string version)
    int major = atoi(version.substr(0, position).c_str());
    int minor = atoi(version.substr(position+1, version.length()-position).c_str());
 
-   cout << "Certificate format version " << major << "." << minor << endl;
+   cout << "Certificate format version " << major << "." << minor << " mode: ";
+#ifndef NDEBUG
+   cout << "[debug] [parallel]"<< endl;
+#else
+   cout << "[optimized] [parallel]"<< endl;
+#endif
 
-   if( (major ==VIPR_VERSION_MAJOR) && (minor <=VIPR_VERSION_MINOR) )
+   if( (major == VIPR_VERSION_MAJOR) && (minor <= VIPR_VERSION_MINOR) )
    {
       returnStatement = true;
    }
