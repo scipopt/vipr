@@ -602,7 +602,7 @@ bool processRTP()
 
    while( section[0] == '%' )
       certificateFile >> section;
-   
+
    // Checking section
    if( section != "RTP" )
    {
@@ -878,6 +878,7 @@ bool processDER()
    {
       shared_ptr<SVectorGMP> coef(make_shared<SVectorGMP>());
       if( !readConstraint(label, sense, rhs, coef) ) return false;
+
       if( label[0] == '%' )
       {
          i--;
@@ -886,6 +887,7 @@ bool processDER()
          certificateFile.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
          continue;
       }
+
       // Obtain derivation method and info
       string bracket, kind;
       int refIdx;

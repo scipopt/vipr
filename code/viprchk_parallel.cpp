@@ -658,7 +658,14 @@ bool processCON()
             shared_ptr<SVectorGMP> coef(make_shared<SVectorGMP>());
 
             returnStatement = readConstraint(label, sense, rhs, coef);
-
+            if( label[0] == '%' )
+            {
+               i--;
+//             TODO: this is not working if the line with the comment is not containing a whitespace 
+//               if( label[ label.size( ) - 1 ] != '\n' )
+               certificateFile.ignore(std::numeric_limits<std::streamsize>::max( ), '\n');
+               continue;
+            }
             if( !returnStatement ) break;
 
             constraint.push_back(Constraint(label, sense, rhs, coef, false, emptyList));
@@ -683,6 +690,9 @@ bool processRTP()
    string section;
 
    certificateFile >> section;
+
+   while( section[0] == '%' )
+      certificateFile >> section;
 
    // Checking section
    if( section != "RTP" )
@@ -951,13 +961,18 @@ bool seqCheck_Der()
    mpq_class rhs;
 
    for( int i = 0; i < numberOfDerivations; ++i )
-      {
-         shared_ptr<SVectorGMP> coef(make_shared<SVectorGMP>());
+   {
+      shared_ptr<SVectorGMP> coef(make_shared<SVectorGMP>());
 
+      if( !readConstraint(label, sense, rhs, coef) ) return false;
 
-      if( !readConstraint(label, sense, rhs, coef) )
+      if( label[0] == '%' )
       {
-         return false;
+         i--;
+//       TODO: this is not working if the line with the comment is not containing a whitespace
+//         if( label[ label.size( ) - 1 ] != '\n' )
+         certificateFile.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+         continue;
       }
 
       // Obtain derivation method and info
@@ -1126,6 +1141,9 @@ bool seqCheck_Der()
       // Constraint trashing?
 
       constraint.push_back(toDer);
+
+      // skip to next line
+      certificateFile.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
       }
    auto lastAssumptionList = constraint.back().getassumptionList();
    if( lastAssumptionList != emptyList )
@@ -1449,6 +1467,8 @@ bool readConstraint(string &label, int &sense, mpq_class &rhs, shared_ptr<SVecto
          sense = -1;
       else if( senseChar == 'G' )
          sense = 1;
+      else if( label[0] == '%' )
+         return true;
       else
       {
         cerr << "Unknown sense for " << label << ": " << senseChar << endl;

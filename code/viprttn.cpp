@@ -28,6 +28,7 @@
 #include <vector>
 #include <functional>
 #include "CMakeConfig.hpp"
+#include <limits>
 
 using namespace std;
 
@@ -615,8 +616,8 @@ bool firstPass( ifstream &pf, int &numCon, vector<Node> &nodes, streampos &fposD
 
       }
 
-      pf >> idx; // read off current max con index and ignore it
-
+      // ignore rest of the line
+      pf.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
    }
 
    stat = true;
@@ -875,10 +876,11 @@ bool writeReorderedDER( ifstream &pf, ofstream &optF, streampos fposDer, int &nu
             cerr << "Unrecognized reason type: " << tmp << endl;
             goto TERMINATE;
          }
-
       }
 
-      pf >> tmp; // read off current max con index and ignore it
+      // ignore rest of the line including current max con index
+      // TODO: copy potential end-of-line comments
+      pf.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
       auto _maxIdx = [ &nodes, &numCon ](int m)
       {
