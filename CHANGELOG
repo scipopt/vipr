@@ -1,3 +1,20 @@
+@page RN12 Release notes for VIPR 1.2
+
+Features:
+-----------
+
+Build system
+------------
+
+Fixed bugs
+-----------
+- allow comments at end of line in viprchk
+- allow empty and pure comment lines in viprcomp
+
+Data structures
+-----------
+
+
 @page RN11 Release notes for VIPR 1.1
 
 Features:

@@ -950,6 +950,9 @@ static void readFileIntoMemory(size_t initialLine, std::vector<size_t>& toComple
 
    while( getline(certificateFile, line) )
    {
+      if( line.length() == 0 || line[0] == '%' )
+         continue;
+
       lineneedscompletion = (line.find("weak") != string::npos) || (line.find("incomplete") != string::npos);
       // line needs to be completed -> only one line at a time
       if( lineneedscompletion )
