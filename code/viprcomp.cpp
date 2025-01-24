@@ -1772,7 +1772,7 @@ bool completeIncomplete( SoPlex &localLP,  bimap& LProwCertificateMap, vector<lo
       localLP.getRedCostRational(reducedcosts);
 
       printReasoningToLine(dualmultipliers, reducedcosts, completedLine, LProwCertificateMap);
-      completedLine<< "}";
+      completedLine<< " }";
 
    }
    else
