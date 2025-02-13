@@ -180,7 +180,7 @@ bool getConstraints( SoPlex &workinglp, string &consense, Rational &rhs, int &ac
 std::string completelin( SoPlex &workinglp, bimap& LProwCertificateMap, Constraint &constraint);
 
 static bool completeWeakDomination(DSVectorRational &row, int consense, Rational &rhs, stringstream& completedLine,
-                                    stringstream &initialLine);
+                                    stringstream &initialLine, string& constraintname);
 static bool readLinComb( int &sense, Rational &rhs, SVectorRat& coefficients, SVectorRat& mult,
                   int currentConstraintIndex, SVectorBool &assumptionList, stringstream &baseLine);
 static bool readMultipliers( int &sense, SVectorRat &mult, stringstream &initialLine );
@@ -1294,11 +1294,12 @@ string completelin( SoPlex &workinglp,  bimap& LProwCertificateMap, Constraint& 
 #endif
    }
    else if( numberOfCoefficients == "weak" )
-      retval = completeWeakDomination( *row, consense, rhs, completedDerivation, linestream );
-   else
    {
-      cerr << "Wrong type of derivation: " << numberOfCoefficients << endl;
+      basic_string<char> constraintname = line.substr(0, line.find(' '));
+      retval = completeWeakDomination(*row, consense, rhs, completedDerivation, linestream, constraintname);
    }
+   else
+      cerr << "Wrong type of derivation: " << numberOfCoefficients << endl;
 
    completedDerivation << " -1 ";
 
@@ -1366,10 +1367,10 @@ static bool readLinComb( int &sense, Rational &rhs, SVectorRat& coefficients, SV
       coefficients.clear();
       assumptionList.clear();
 
-      for( auto it = mult.begin(); it != mult.end(); ++it )
+      for(auto & it : mult)
       {
-         auto index = it->first;
-         auto a = it->second;
+         auto index = it.first;
+         auto a = it.second;
 
          // auto myassumptionList = constraint[index].getassumptionList();
 
@@ -1394,7 +1395,7 @@ static bool readLinComb( int &sense, Rational &rhs, SVectorRat& coefficients, SV
 
 // Complete "lin"-type derivations marked "weak"
 static bool completeWeakDomination(DSVectorRational &row, int consense, Rational &rhs, stringstream& completedLine,
-                                    stringstream &baseLine)
+                                    stringstream &baseLine, string& constraintname)
 {
    SVectorRat coefDer;
    SVectorRat multDer;
@@ -1432,7 +1433,6 @@ static bool completeWeakDomination(DSVectorRational &row, int consense, Rational
       {
          cerr << "type does not match L/U, but is instead " << type << endl;
          abort();
-         return false;
       }
    }
 
@@ -1579,8 +1579,8 @@ static bool completeWeakDomination(DSVectorRational &row, int consense, Rational
          {
             if( boundmult != 0 )
             {
-               cout << "    correcting variable " << variableNames[idx] << " (idx " << idx << ") by "
-                    << boundmult << " (" << static_cast<double>(boundmult) << ") using";
+               cout << "\tcorrecting variable " << variableNames[idx] << " (idx " << idx << ") by "
+                    << boundmult << " (" << boundmult.convert_to<double>() << ") using";
                if( islower )
                {
                   if( localLowerBoundsToUse.count(idx) )
@@ -1593,7 +1593,7 @@ static bool completeWeakDomination(DSVectorRational &row, int consense, Rational
                      cout << " local ";
                   cout << " upper bound ";
                }
-               cout << boundval << " (" << static_cast<double>(boundval) << ")" << endl;
+               cout << boundval << " (" << boundval.convert_to<double>() << ")" << endl;
             }
          }
       }
@@ -1602,13 +1602,13 @@ static bool completeWeakDomination(DSVectorRational &row, int consense, Rational
    if( debugmode == true )
    {
       cout.precision(numeric_limits<double>::max_digits10);
-      cout << "  exact rhs before correction: " << rhsDer << " ("
+      cout << "\texact rhs before correction: " << rhsDer << " ("
            <<    static_cast<double>(rhsDer) << ")" << endl;
 
-      cout << "  exact rhs after  correction: " << correctedSide << " ("
+      cout << "\texact rhs after  correction: " << correctedSide << " ("
            <<    static_cast<double>(correctedSide) << ")" << endl;
 
-      cout << "  rhs that was printed       : " << rhs << " ("
+      cout << "\trhs that was printed       : " << rhs << " ("
            <<    static_cast<double>(rhs) << ")" << endl;
    }
 
@@ -1628,11 +1628,11 @@ static bool completeWeakDomination(DSVectorRational &row, int consense, Rational
       else
       {
          cerr.precision(numeric_limits<double>::max_digits10);
-         cerr << "Constraint does not dominate original one." << endl << "  Corrected Side is "
-            << correctedSide << "(" << static_cast<double>(correctedSide) << ")" << endl
-            <<  "  Original rhs is " << rhs << "(" << static_cast<double>(rhs) << ")" << endl;
+         cerr << "Constraint " << constraintname << " does not dominate original one." << endl
+            << "\tCorrected Side is "<< correctedSide << " (" << correctedSide.convert_to<double>() << ")" << endl
+            << "\tOriginal rhs is " << rhs << " (" << rhs.convert_to<double>() << ")" << endl;
 
-         cerr << "  difference: " << static_cast<double>(correctedSide - rhs) << endl;
+         cerr << "\tdifference: " << (correctedSide - rhs).convert_to<double>() << endl;
          success = false;
       }
    }
@@ -1640,11 +1640,8 @@ static bool completeWeakDomination(DSVectorRational &row, int consense, Rational
       success = true;
 
    completedLine << " " << multDer.size();
-   for(auto it = multDer.begin(); it != multDer.end(); it++)
-   {
-      completedLine << " " << it->first << " " << it->second;
-   }
-
+   for(auto & it : multDer)
+      completedLine << " " << it.first << " " << it.second;
    completedLine << " }";
 
    return success;
