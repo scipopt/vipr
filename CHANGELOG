@@ -11,9 +11,9 @@ Fixed bugs
 - allow comments at end of line in viprchk
 - allow empty and pure comment lines in viprcomp
 
-Data structures
+Miscellaneous
 -----------
-
+- print constraint name if constraint is not dominated during viprcomnp 
 
 @page RN11 Release notes for VIPR 1.1
 
