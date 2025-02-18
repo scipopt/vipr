@@ -13,7 +13,7 @@ Fixed bugs
 
 Miscellaneous
 -----------
-- print constraint name if constraint is not dominated during viprcomnp 
+- improve log outputs if checking the certificate fails by adding the constraint names
 
 @page RN11 Release notes for VIPR 1.1
 
