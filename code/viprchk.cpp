@@ -877,7 +877,8 @@ bool processDER()
    for( int i = 0; i < numberOfDerivations; ++i )
    {
       shared_ptr<SVectorGMP> coef(make_shared<SVectorGMP>());
-      if( !readConstraint(label, sense, rhs, coef) ) return false;
+      if( !readConstraint(label, sense, rhs, coef) )
+         return false;
 
       if( label[0] == '%' )
       {
@@ -934,7 +935,7 @@ bool processDER()
 
             if( bracket != "}" )
             {
-               cerr << "Expecting } but read instead " << bracket << endl;
+               cerr << "Syntax Error in " << label << ": Expecting } but read instead " << bracket << endl;
                return false;
             }
             break;
@@ -953,7 +954,7 @@ bool processDER()
 
                if( bracket != "}" )
                {
-                  cerr << "Expecting } but read instead " << bracket << endl;
+                  cerr << "Syntax Error in " << label << ": Expecting } but read instead " << bracket << endl;
                   return false;
                }
 
@@ -1089,12 +1090,8 @@ bool processDER()
    if( assumptionList != emptyList )
    {
       cout << "Final derived constraint undischarged assumptions:" << endl;
-      for( auto it = assumptionList.begin(); it != assumptionList.end(); ++it )
-      {
-         auto index = it->first;
-
-         cout << index << ": " << constraint[index].label() << endl;
-      }
+      for(auto & it : assumptionList)
+         cout << it.first << ": " << constraint[ it.first ].label() << endl;
    }
    else
    {
@@ -1144,8 +1141,7 @@ bool processDER()
    }
 
    return returnStatement;
-} // processDER
-
+} 
 
 
 // Classes and Functions
@@ -1174,7 +1170,7 @@ inline mpq_class ceil(const mpq_class &q)
 
 bool isInteger(const mpq_class &q)
 {
-   return (q == floor(q));
+   return q == floor(q);
 }
 
 
@@ -1200,15 +1196,15 @@ bool readLinComb( int &sense, mpq_class &rhs, shared_ptr<SVectorGMP> coefficient
       assumptionList.clear();
       mpq_class t;
 
-      for( auto it = mult.begin(); it != mult.end(); ++it )
+      for(auto & it : mult)
       {
-         auto index = it->first;
-         auto a = it->second;
+         auto index = it.first;
+         auto a = it.second;
 
          auto myassumptionList = constraint[index].getassumptionList();
 
-         for( auto it2 = myassumptionList.begin(); it2 != myassumptionList.end(); ++it2 )
-            assumptionList[it2->first] = true;
+         for(auto & it2 : myassumptionList)
+            assumptionList[it2.first] = true;
 
          const Constraint &con = constraint[index];
 
@@ -1221,8 +1217,8 @@ bool readLinComb( int &sense, mpq_class &rhs, shared_ptr<SVectorGMP> coefficient
          {
             shared_ptr<SVectorGMP> c = constraint[index].coefSVec();
 
-            for( auto itr = c->begin(); itr != c->end(); ++itr )
-               (*coefficients)[ itr->first ] += a * itr->second;
+            for(auto & itr : *c)
+               (*coefficients)[ itr.first ] += a * itr.second;
 
             rhs += a * constraint[index].getRhs();
 
@@ -1453,8 +1449,8 @@ bool canUnsplit(  Constraint &toDer, const int con1, const int a1,
       cout << endl;
 #endif
 
-      for( auto it = asm2.begin(); it != asm2.end(); ++it ) {
-         assumptionList[it->first] = true;
+      for(auto & it : asm2) {
+         assumptionList[it.first] = true;
       }
 
       if( branchAsm1.isTrashed() )
@@ -1499,18 +1495,18 @@ bool canUnsplit(  Constraint &toDer, const int con1, const int a1,
          if( (c1ptr == c2ptr) || (*c1ptr == *c2ptr) ) // coefSVec can both point to objectiveCoefficients
          {
 
-            for( auto it = c1ptr->begin(); it != c1ptr->end(); ++it )
+            for(auto & it : *c1ptr)
             {
-               if( !isInt[it->first] )
+               if( !isInt[it.first] )
                {
-                  cerr << "canUnsplit: noninteger variable index " << it->first
+                  cerr << "canUnsplit: noninteger variable index " << it.first
                          << endl;
                   goto TERMINATE;
                }
-               else if( !isInteger(it->second) )
+               else if( !isInteger(it.second) )
                {
                   cerr << "canUnsplit: noninteger coefficient for index "
-                         << it->first << endl;
+                         << it.first << endl;
                   goto TERMINATE;
                }
             }
@@ -1547,10 +1543,10 @@ bool SVectorGMP::operator!=(SVectorGMP &other)
    }
    else
    {
-      for( auto it1 = cf1.begin(); it1 != cf1.end(); ++it1 )
+      for(auto & it1 : cf1)
       {
-         auto it2 = cf2.find(it1->first);
-         if( it2 == cf2.end() || it2->second != it1->second )
+         auto it2 = cf2.find(it1.first);
+         if( it2 == cf2.end() || it2->second != it1.second )
          {
             returnStatement = true;
             break;
@@ -1583,10 +1579,10 @@ bool Constraint::round()
 {
    bool returnStatement = true;
 
-   for( auto it = _coefficients->begin(); it != _coefficients->end(); ++it )
+   for(auto & it : *_coefficients)
    {
-      auto j = it->first;
-      auto a = it->second;
+      auto j = it.first;
+      auto a = it.second;
 
       if( isInt[j] )
       {   // needs to be an integer variable
@@ -1614,7 +1610,7 @@ bool Constraint::_isFalsehood()
 {
    bool returnStatement = false;
 
-   if( _coefficients->size() == 0 )
+   if( _coefficients->empty() )
    {
       if( ((getSense() <= 0) && (_rhs < 0)) || ((getSense() >= 0) && (_rhs > 0)) )
          returnStatement = true;
@@ -1652,7 +1648,7 @@ bool Constraint::dominates(Constraint &other) const
 bool Constraint::isTautology() {
    bool returnStatement = false;
 
-   if( _coefficients->size() == 0 )
+   if( _coefficients->empty() )
    {
       if( ((getSense() == 0) && (0 == _rhs))
          || ((getSense() < 0) && (_rhs >= 0))
@@ -1675,10 +1671,10 @@ void Constraint::print() {
    if( _isAssumption )
       cout << "Is assumption: ";
 
-   for( auto it = _coefficients->begin(); it != _coefficients->end(); ++it )
+   for(auto & it : *_coefficients)
    {
-      auto index = it->first;
-      auto a = it->second;
+      auto index = it.first;
+      auto a = it.second;
 
       myCoefficient = abs(a);
 
