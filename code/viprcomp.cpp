@@ -1431,7 +1431,7 @@ static bool completeWeakDomination(DSVectorRational &row, int consense, Rational
       }
       else
       {
-         cerr << "type does not match L/U, but is instead " << type << endl;
+         cerr << "Syntax error in " << constraintname << ": type does not match L/U, but is instead " << type << endl;
          abort();
       }
    }
