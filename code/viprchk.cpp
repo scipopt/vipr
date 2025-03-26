@@ -87,6 +87,16 @@ class SVectorGMP : public map<int, mpq_class>
                               _compact = true;
                            }
                         }
+      void canonicalize() {
+                           {
+                              auto it = this->begin();
+                              while( it != this->end() )
+                              {
+                                 it->second.canonicalize();
+                                 ++it;
+                              }
+                           }
+                        }
       bool operator!=(SVectorGMP &other);
       bool operator==(SVectorGMP &other) { return !(*this != other);}
       SVectorGMP operator-(const SVectorGMP &other)
@@ -122,6 +132,7 @@ class Constraint
                      _falsehood = _isFalsehood();
                   }
 
+      void canonicalize() { _coefficients->canonicalize(); }
       bool round();
 
       mpq_class getRhs() const { return _rhs; }
@@ -968,6 +979,13 @@ bool processDER()
 
 
                // check the from reason derived constraint against the given
+               // only very rarely it happens that the equality check fails because values are not canonicalized, hence we perform that lazily
+               if( !derived.dominates(toDer) )
+               {
+                  derived.canonicalize();
+                  toDer.canonicalize();
+               }
+
                if( !derived.dominates(toDer) )
                {
                   cout << "Failed to derive constraint " << label << endl;
