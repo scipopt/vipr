@@ -133,6 +133,7 @@ class Constraint
                   }
 
       void canonicalize() { _coefficients->canonicalize(); }
+      void compactify() { _coefficients->compactify(); }
       bool round();
 
       mpq_class getRhs() const { return _rhs; }
@@ -979,11 +980,14 @@ bool processDER()
 
 
                // check the from reason derived constraint against the given
-               // only very rarely it happens that the equality check fails because values are not canonicalized, hence we perform that lazily
+               // very rarely it happens that the equality check fails because values are not canonicalized or contain
+               // zeros, so and we perform that lazily
                if( !derived.dominates(toDer) )
                {
                   derived.canonicalize();
+                  derived.compactify();
                   toDer.canonicalize();
+                  toDer.compactify();
                }
 
                if( !derived.dominates(toDer) )
