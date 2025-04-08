@@ -10,11 +10,12 @@ Fixed bugs
 -----------
 - allow comments at end of line in viprchk
 - allow empty and pure comment lines in viprcomp
+- add lazy canonicalization to fix unsuccessful domination checks
+- remove compactification marker as source of unsuccessful domination checks
 
 Miscellaneous
 -----------
 - improve log outputs if checking the certificate fails by adding the constraint names
-- remove compactification marker as a potential source of unsuccessful domination checks
 - rewrite sparse vector comparison to reduce calls to compactify()
 
 @page RN11 Release notes for VIPR 1.1
