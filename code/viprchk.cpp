@@ -988,9 +988,7 @@ bool processDER()
                if( !derived.dominates(toDer) )
                {
                   derived.canonicalize();
-                  derived.compactify();
                   toDer.canonicalize();
-                  toDer.compactify();
                }
 
                if( !derived.dominates(toDer) )
@@ -1755,8 +1753,8 @@ void Constraint::print() {
    }
    cout << _rhs << " ( " << _rhs.get_d() << " )" << endl;
 
-#ifdef MORE_DEBUG_OUTPUT
-   if( !_isAssumption )
+#ifndef NDEBUG
+   if( !_isAssumption && !_assumptionList.empty() )
    {
       cout << " -- assumptions: " << endl;
       for( auto it = _assumptionList.begin(); it != _assumptionList.end(); ++it )
