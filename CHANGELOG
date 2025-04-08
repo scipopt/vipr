@@ -14,6 +14,7 @@ Fixed bugs
 Miscellaneous
 -----------
 - improve log outputs if checking the certificate fails by adding the constraint names
+- remove compactification marker as a potential source of unsuccessful domination checks
 
 @page RN11 Release notes for VIPR 1.1
 

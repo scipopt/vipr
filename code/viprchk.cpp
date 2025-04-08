@@ -76,16 +76,23 @@ enum RelationToProveType
 class SVectorGMP : public map<int, mpq_class>
 {
    public:
-      void compactify() {  if( !_compact )
+      void compactify() {
+                           auto it = this->begin();
+                           while( it != this->end() )
                            {
-                              auto it = this->begin();
-                              while( it != this->end() )
-                              {
-                                 if( it->second == 0 ) this->erase(it++);
-                                 else ++it;
-                              }
-                              _compact = true;
+                              if( it->second == 0 )
+                                 it = this->erase(it);
+                              else ++it;
                            }
+#ifndef NDEBUG
+                           cout << "compactified vector with entries ";
+                           for( it = this->begin(); it != this->end(); ++it )
+                           {
+                              cout << it->second << " ";
+                              assert(it->second != 0);
+                           }
+                           cout << "and size " << this->size() << endl;
+#endif
                         }
       void canonicalize() {
                            {
@@ -106,12 +113,8 @@ class SVectorGMP : public map<int, mpq_class>
          {
             returnsvec[it->first] -= it->second;
          }
-
          return returnsvec;
       }
-
-   private:
-      bool _compact = false;
 };
 
 // Constraint format
