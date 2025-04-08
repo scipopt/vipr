@@ -1553,33 +1553,49 @@ TERMINATE:
 // SVectorGMP methods
 bool SVectorGMP::operator!=(SVectorGMP &other)
 {
-   bool returnStatement = false;
-
    SVectorGMP &cf1 = *this;
    SVectorGMP &cf2 = other;
 
    // get rid of all zero entries
-   cf1.compactify();
-   cf2.compactify();
+   if( cf1.size() != cf2.size() )
+   {
+      cf1.compactify();
+      cf2.compactify();
+   }
 
    if( cf1.size() != cf2.size() )
    {
-      returnStatement = true;
+#ifndef NDEBUG
+      cout << "vectors found different due to size: " << cf1.size() << " vs. " << cf2.size() << endl;
+#endif
+      return true;
    }
    else
    {
       for(auto & it1 : cf1)
       {
          auto it2 = cf2.find(it1.first);
-         if( it2 == cf2.end() || it2->second != it1.second )
+         if( ( it2 == cf2.end() && it1.second != 0 ) )
          {
-            returnStatement = true;
-            break;
+#ifndef NDEBUG
+            cout << "vectors found different in coefficient comparison: "
+                 << " variable " << it1.first << " not found" << endl;
+#endif
+            return true;
+         }
+         else if( it2 != cf2.end() && it2->second != it1.second )
+         {
+#ifndef NDEBUG
+            cout << "vectors found different in coefficient comparison: "
+                 << " variable " << it1.first << " has coefficients "
+                 << it1.second << " vs. " << it2->second << endl;
+#endif
+            return true;
          }
       }
    }
 
-   return returnStatement;
+   return false;
 }
 
 
