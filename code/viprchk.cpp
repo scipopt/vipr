@@ -133,6 +133,7 @@ class Constraint
                      _coefficients->compactify();
                      _trashed = false;
                      _falsehood = _isFalsehood();
+                     _coefsEqualObj = false;
                   }
 
       void canonicalize() { _coefficients->canonicalize(); }
@@ -159,6 +160,12 @@ class Constraint
       bool hasAsm(const int index) {
                return (_assumptionList.find(index) != _assumptionList.end());
             }
+
+      bool hasObjectiveCoefficients() const { return _coefsEqualObj; }
+                  // true iff the coefficient vector equals the objective coefficient vector
+
+      void markObjectiveCoefficients() { _coefsEqualObj = true; }
+                  // marks the coefficient vector to be equal to the objective coefficient vector
 
       void setassumptionList(const SVectorBool assumptionList) { _assumptionList = assumptionList; }
       SVectorBool getassumptionList() const { return _assumptionList; }
@@ -196,6 +203,7 @@ class Constraint
       bool _isAssumption;
       SVectorBool _assumptionList; // constraint index list that are assumptions
       bool _falsehood;
+      bool _coefsEqualObj;
 
       bool _isFalsehood();
       bool _trashed;
@@ -241,9 +249,9 @@ bool processSOL();
 bool processDER();
 
 bool readMultipliers(int &sense, SVectorGMP &mult);
-bool readConstraintCoefficients(shared_ptr<SVectorGMP> &v);
+bool readConstraintCoefficients(shared_ptr<SVectorGMP> &v, bool& coefEqualsObj);
 bool readConstraint( string &label, int &sense, mpq_class &rhs,
-                     shared_ptr<SVectorGMP> &coef);
+                     shared_ptr<SVectorGMP> &coef, bool& coefEqualsObj);
 
 inline mpq_class floor(const mpq_class &q); // rounding down
 inline mpq_class ceil(const mpq_class &q); // rounding up
@@ -502,6 +510,7 @@ bool processOBJ()
    else
    {
       string objectiveSense;
+      bool dummy;
 
       certificateFile >> objectiveSense;
 
@@ -519,7 +528,8 @@ bool processOBJ()
           goto TERMINATE;
       }
 
-      returnStatement = readConstraintCoefficients(objectiveCoefficients);
+      returnStatement = readConstraintCoefficients(objectiveCoefficients, dummy);
+      assert(!dummy);
       objectiveIntegral = true;
 
       for( auto it = objectiveCoefficients->begin(); it != objectiveCoefficients->end(); ++it )
@@ -579,9 +589,9 @@ bool processCON()
          for( int i = 0; i < numberOfConstraints; i++ )
          {
             shared_ptr<SVectorGMP> coef(make_shared<SVectorGMP>());
+            bool dummy;
 
-
-            returnStatement = readConstraint(label, sense, rhs, coef);
+            returnStatement = readConstraint(label, sense, rhs, coef, dummy);
             if( label[0] == '%' )
             {
                i--;
@@ -682,8 +692,7 @@ bool processRTP()
          }
          else
          {
-            returnStatement = true;
-            goto TERMINATE;
+            assert(relationToProve.isTautology());
          }
 
          cout << "Need to verify optimal value range "
@@ -762,10 +771,12 @@ bool processSOL()
 
       for( int i = 0; i < numberOfSolutions; ++i )
       {
+         bool dummy;
+
          certificateFile >> label;
          cout << "checking solution " << label << endl;
 
-         if( !readConstraintCoefficients(solutionSpecified) )
+         if( !readConstraintCoefficients(solutionSpecified, dummy) )
          {
             cerr << "Failed to read solution." << endl;
             goto TERMINATE;
@@ -854,6 +865,12 @@ bool processDER()
 
    cout << endl << "Processing DER section..." << endl;
 
+   if( relationToProve.isTautology() )
+   {
+      cout << "RTP is a tautology: Successfully verified." << endl;
+      return true;
+   }
+
    bool returnStatement = false;
 
    string section;
@@ -892,7 +909,9 @@ bool processDER()
    for( int i = 0; i < numberOfDerivations; ++i )
    {
       shared_ptr<SVectorGMP> coef(make_shared<SVectorGMP>());
-      if( !readConstraint(label, sense, rhs, coef) )
+      bool coefEqualsObj = false;
+
+      if( !readConstraint(label, sense, rhs, coef, coefEqualsObj) )
          return false;
 
       if( label[0] == '%' )
@@ -931,6 +950,8 @@ bool processDER()
 
       // The constraint to be derived
       Constraint toDer(label, sense, rhs, coef, (derivationType == DerivationType::ASM), emptyList);
+      if( coefEqualsObj )
+         toDer.markObjectiveCoefficients();
 
 #ifdef MORE_DEBUG_OUTPUT
       cout << numberOfConstraints + i << " - deriving..." << label << endl;
@@ -1090,6 +1111,32 @@ bool processDER()
       toDer.setMaxRefIdx(refIdx);
       constraint.push_back(toDer);
 
+      // Check whether we have globally proven the dual side of RTP
+      if( assumptionList == emptyList )
+      {
+         if( relationToProveType == RelationToProveType::INFEAS && constraint.back().isFalsehood() )
+         {
+            cout << "Infeasibility verified." << endl;
+            return true;
+         }
+         else if( relationToProveType == RelationToProveType::RANGE && constraint.back().hasObjectiveCoefficients() && constraint.back().dominates(relationToProve) )
+         {
+            cout << endl << "Terminated after " << i << " derivations." << endl;
+
+            if( numberOfSolutions ) {
+               cout << "Best objval over all solutions: " << bestObjectiveValue << endl;
+            }
+
+            cout << "Successfully verified optimal value range "
+                 << (lowerStr == "-inf" ? "(" : "[")
+                 << lowerStr << ", " << upperStr
+                 << (upperStr == "inf" ? ")" : "]")
+                 << "." << endl;
+
+            return true;
+         }
+      }
+
       // skip to next line
       certificateFile.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
@@ -1108,63 +1155,30 @@ bool processDER()
 
    auto assumptionList = constraint.back().getassumptionList();
 
-
-   // Final result
+   // Print potential reasons for errors
    if( assumptionList != emptyList )
    {
-      cout << "Final derived constraint undischarged assumptions:" << endl;
+      cout << "Final derived constraint contains undischarged assumptions:" << endl;
       for(auto & it : assumptionList)
          cout << it.first << ": " << constraint[ it.first ].label() << endl;
    }
    else
    {
       if( relationToProveType == RelationToProveType::INFEAS )
-      {
-         if( constraint.back().isFalsehood() )
-         {
-            cout << "Infeasibility verified." << endl;
-            returnStatement = true;
-         }
-         else
-            cout << "Failed to verify infeasibility." << endl;
-      }
-      else if( (isMin && checkLower) || (!isMin && checkUpper) )
-      {
-         if( relationToProve.isTautology() )
-         {
-            cout << "RTP is a tautology." << endl;
-            returnStatement = true;
-         }
-         else if( !constraint.back().dominates(relationToProve) )
-         {
-            if( isMin )
-               cout << "Failed to derive lower bound." << endl;
-            else
-               cout << "Failed to derive upper bound." << endl;
-            cout << "Proved: " << endl;
-            constraint.back().print();
-            cout << "Instead of: " << endl;
-            relationToProve.print();
-      }
-         else
-         {
-            if( numberOfSolutions ) {
-               cout << "Best objval over all solutions: " << bestObjectiveValue << endl;
-            }
+         cout << "Failed to verify infeasibility." << endl;
+      else if( isMin && checkLower )
+         cout << "Failed to derive lower bound." << endl;
+      else if( !isMin && checkUpper )
+            cout << "Failed to derive upper bound." << endl;
 
-            cout << "Successfully verified optimal value range "
-                   << (lowerStr == "-inf" ? "(" : "[")
-                   << lowerStr << ", " << upperStr
-                   << (upperStr == "inf" ? ")" : "]")
-                   << "." << endl;
-
-            returnStatement = true;
-         }
-      }
+      cout << "Proved: " << endl;
+      constraint.back().print();
+      cout << "Instead of: " << endl;
+      relationToProve.print();
    }
 
-   return returnStatement;
-} 
+   return false;
+}
 
 
 // Classes and Functions
@@ -1318,11 +1332,12 @@ TERMINATE:
 }
 
 // Read and store constraints
-bool readConstraintCoefficients(shared_ptr<SVectorGMP> &coefficients)
+bool readConstraintCoefficients(shared_ptr<SVectorGMP> &coefficients, bool& coefEqualsObj)
 {
    auto returnStatement = false;
    int k = 0;
    string tmp;
+   coefEqualsObj = false;
 
    coefficients->clear();
    certificateFile >> tmp;
@@ -1330,6 +1345,7 @@ bool readConstraintCoefficients(shared_ptr<SVectorGMP> &coefficients)
    if( tmp == "OBJ" ) // case that constraint = objective function
    {
       coefficients = objectiveCoefficients;
+      coefEqualsObj = true;
       returnStatement = true;
    }
    else
@@ -1372,11 +1388,13 @@ TERMINATE:
 }
 
 
-bool readConstraint(string &label, int &sense, mpq_class &rhs, shared_ptr<SVectorGMP> &coefficients)
+bool readConstraint(string &label, int &sense, mpq_class &rhs, shared_ptr<SVectorGMP> &coefficients, bool& coefEqualsObj)
 {
 
    auto returnStatement = false;
    char senseChar;
+
+   coefEqualsObj = false;
 
    certificateFile >> label >> senseChar;
 
@@ -1399,7 +1417,7 @@ bool readConstraint(string &label, int &sense, mpq_class &rhs, shared_ptr<SVecto
       certificateFile >> rhs;
 
       if( !certificateFile.fail() )
-         returnStatement = readConstraintCoefficients(coefficients);
+         returnStatement = readConstraintCoefficients(coefficients, coefEqualsObj);
 
       if( !returnStatement ) cerr << label <<   ": Error reading constraint " << endl;
    }
