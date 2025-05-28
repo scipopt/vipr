@@ -690,10 +690,6 @@ bool processRTP()
          {
             relationToProve = Constraint("rtp", -1, upperBound, objectiveCoefficients, false, emptyList);
          }
-         else
-         {
-            assert(relationToProve.isTautology());
-         }
 
          cout << "Need to verify optimal value range "
                 << (lowerStr == "-inf" ? "(" : "[")
@@ -865,11 +861,12 @@ bool processDER()
 
    cout << endl << "Processing DER section..." << endl;
 
-   if( relationToProve.isTautology() )
+   if( (isMin && !checkLower) || (!isMin && !checkUpper) )
    {
-      cout << "RTP is a tautology: Successfully verified." << endl;
+      cout << "Dual bound of RTP is a tautology: Successfully verified." << endl;
       return true;
    }
+   assert(!relationToProve.isTautology());
 
    bool returnStatement = false;
 
