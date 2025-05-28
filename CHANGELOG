@@ -2,6 +2,7 @@
 
 Features:
 -----------
+- checking of each derivation with empty assumptionlist while processing the DER section, terminating early if RTP is proven
 
 Build system
 ------------
