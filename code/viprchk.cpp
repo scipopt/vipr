@@ -861,13 +861,6 @@ bool processDER()
 
    cout << endl << "Processing DER section..." << endl;
 
-   if( (isMin && !checkLower) || (!isMin && !checkUpper) )
-   {
-      cout << "Dual bound of RTP is a tautology: Successfully verified." << endl;
-      return true;
-   }
-   assert(!relationToProve.isTautology());
-
    bool returnStatement = false;
 
    string section;
@@ -898,6 +891,13 @@ bool processDER()
       cout << "Successfully checked solution for feasibility" << endl;
       return true;
    }
+
+   if( (isMin && !checkLower) || (!isMin && !checkUpper) )
+   {
+      cout << "Dual bound of RTP is a tautology: Successfully verified." << endl;
+      return true;
+   }
+   assert(!relationToProve.isTautology());
 
    string label;
    int sense;
