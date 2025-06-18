@@ -843,6 +843,15 @@ bool processSOL()
             cerr << "Best objective values (" << bestObjectiveValue<< ")  exceeds lower bound (" << lowerBound << ")." << endl;
             goto TERMINATE;
          }
+         else
+         {
+            cout << "Successfully checked solution for feasibility." << endl;
+         }
+      }
+      else if( relationToProveType == RelationToProveType::RANGE && ((isMin && checkUpper) || (!isMin && checkLower)) )
+      {
+         cerr << "No solutions to prove primal bound." << endl;
+         goto TERMINATE;
       }
 
       returnStatement = true;
@@ -879,15 +888,9 @@ bool processDER()
 
    if( relationToProveType == RelationToProveType::RANGE )
    {
-      bool primalboundChecked = (isMin && checkUpper) || (!isMin && checkLower);
-      bool dualboundTrivial = (isMin && !checkLower) || (!isMin && !checkUpper);
-
-      if( primalboundChecked )
-         cout << "Successfully checked solution for feasibility." << endl;
-      if( dualboundTrivial )
-         cout << "Dual bound of RTP is a tautology." << endl;
-      if( primalboundChecked && dualboundTrivial )
+      if( (isMin && !checkLower) || (!isMin && !checkUpper) )
       {
+         cout << "Dual bound of RTP is a tautology." << endl;
          cout << "Successfully verified." << endl;
          return true;
       }
