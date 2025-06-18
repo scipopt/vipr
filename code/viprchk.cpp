@@ -877,25 +877,20 @@ bool processDER()
 
    cout << "numberOfDerivations = " << numberOfDerivations << endl;
 
-
-   // No lower bound to check and no deriviations -> nothing to do
-   if( numberOfDerivations == 0 && !checkLower )
+   if( relationToProveType == RelationToProveType::RANGE )
    {
-      cout << "Successfully checked solution for feasibility" << endl;
-      return true;
-   }
+      bool primalboundChecked = (isMin && checkUpper) || (!isMin && checkLower);
+      bool dualboundTrivial = (isMin && !checkLower) || (!isMin && !checkUpper);
 
-   // no upper bound to check and no deriviations -> nothing to do
-   if( numberOfDerivations == 0 && !checkUpper )
-   {
-      cout << "Successfully checked solution for feasibility" << endl;
-      return true;
-   }
-
-   if( (isMin && !checkLower) || (!isMin && !checkUpper) )
-   {
-      cout << "Dual bound of RTP is a tautology: Successfully verified." << endl;
-      return true;
+      if( primalboundChecked )
+         cout << "Successfully checked solution for feasibility." << endl;
+      if( dualboundTrivial )
+         cout << "Dual bound of RTP is a tautology." << endl;
+      if( primalboundChecked && dualboundTrivial )
+      {
+         cout << "Successfully verified." << endl;
+         return true;
+      }
    }
    assert(!relationToProve.isTautology());
 
@@ -1166,7 +1161,7 @@ bool processDER()
       else if( isMin && checkLower )
          cout << "Failed to derive lower bound." << endl;
       else if( !isMin && checkUpper )
-            cout << "Failed to derive upper bound." << endl;
+         cout << "Failed to derive upper bound." << endl;
 
       cout << "Proved: " << endl;
       constraint.back().print();
