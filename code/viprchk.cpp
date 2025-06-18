@@ -268,13 +268,10 @@ bool readLinComb( int &sense, mpq_class &rhs, shared_ptr<SVectorGMP> coef,
 // Main function
 int main(int argc, char *argv[])
 {
-
-   int returnStatement = -1;
-
    if( argc != 2 )
    {
       cerr << "Usage: " << argv[0] << " <certificate filename>\n";
-      return returnStatement;
+      return -1;
    }
 
    certificateFile.open(argv[1]);
@@ -282,7 +279,7 @@ int main(int argc, char *argv[])
    if( certificateFile.fail() )
    {
       cerr << "Failed to open file " << argv[1] << endl;
-      return returnStatement;
+      return -1;
    }
 
    double start_cpu_tm = clock();
@@ -294,15 +291,16 @@ int main(int argc, char *argv[])
                   if( processRTP() )
                      if( processSOL() )
                         if( processDER() ) {
-                           returnStatement = 0;
                            double cpu_dur = (clock() - start_cpu_tm)
                                             / (double)CLOCKS_PER_SEC;
 
                            cout << endl << "Completed in " << cpu_dur
                                 << " seconds (CPU)" << endl;
+                           return 0;
                         }
 
-   return returnStatement;
+   cout << endl << "Verification failed." << endl;
+   return -1;
 }
 
 
@@ -1153,7 +1151,7 @@ bool processDER()
    // Print potential reasons for errors
    if( assumptionList != emptyList )
    {
-      cout << "Final derived constraint contains undischarged assumptions:" << endl;
+      cout << "Failed: Final derived constraint contains undischarged assumptions:" << endl;
       for(auto & it : assumptionList)
          cout << it.first << ": " << constraint[ it.first ].label() << endl;
    }
