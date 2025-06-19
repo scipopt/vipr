@@ -21,7 +21,6 @@ if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-
 # find GMP
 find_package(GMP REQUIRED)
 include_directories(${GMP_INCLUDE_DIRS})
