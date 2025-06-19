@@ -6,6 +6,7 @@ Features:
 
 Build system
 ------------
+- Release Mode is the default CMAKE_BUILD_TYPE
 
 Fixed bugs
 -----------
