@@ -70,6 +70,12 @@ enum RelationToProveType
    RANGE   // lower bound (-inf if none) and upper bound (inf if none) to be verified
 };
 
+// Return codes
+enum ViprStatus
+{
+   OKAY = 0,
+   ERROR = -1
+};
 
 // Classes
 // Sparse vectors of rational numbers as maps
@@ -271,7 +277,7 @@ int main(int argc, char *argv[])
    if( argc != 2 )
    {
       cerr << "Usage: " << argv[0] << " <certificate filename>\n";
-      return -1;
+      return ViprStatus::ERROR;
    }
 
    certificateFile.open(argv[1]);
@@ -279,7 +285,7 @@ int main(int argc, char *argv[])
    if( certificateFile.fail() )
    {
       cerr << "Failed to open file " << argv[1] << endl;
-      return -1;
+      return ViprStatus::ERROR;
    }
 
    double start_cpu_tm = clock();
@@ -296,11 +302,11 @@ int main(int argc, char *argv[])
 
                            cout << endl << "Completed in " << cpu_dur
                                 << " seconds (CPU)" << endl;
-                           return 0;
+                           return ViprStatus::OKAY;
                         }
 
    cout << endl << "Verification failed." << endl;
-   return -1;
+   return ViprStatus::ERROR;
 }
 
 
