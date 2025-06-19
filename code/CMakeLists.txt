@@ -16,6 +16,12 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
 # path to find modules
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
 
+# Set default build type to Release if not specified
+if(NOT CMAKE_BUILD_TYPE)
+	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+
 # find GMP
 find_package(GMP REQUIRED)
 include_directories(${GMP_INCLUDE_DIRS})
