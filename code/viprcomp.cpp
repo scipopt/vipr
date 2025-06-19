@@ -84,7 +84,7 @@ vector<string> variableNames; // variable names
 DSVectorPointer ObjCoeff(make_shared<DSVectorRational>()); // sparse vector of objective coefficients
 size_t numberOfVariables;
 
-unsigned int nthreads = thread::hardware_concurrency();
+unsigned int nthreads = 1;
 
 struct Constraint {DSVectorPointer vec; Rational side; int sense; string line;}; // @todo: take care of deep copies here!
 vector<Constraint> constraints;
@@ -1011,108 +1011,147 @@ bool processDER(SoPlex workinglp)
 
    lineindex = numberOfConstraints;
 
-   readFileIntoMemory(lineindex, toCompleteLines);
+//   readFileIntoMemory(lineindex, toCompleteLines);
 
-   circBuf circQueue(0);
+   string line;
+   bool lineneedscompletion = false;
+   completedFile << endl;
 
-   // generate and queue the LPs that are needed in parallel
-   if( usesoplex )
+   while( getline(certificateFile, line) )
    {
-      circQueue.resize(2 * nthreads);
-      for(int i = 0; i < 2 * nthreads; ++i)
+      if( line.empty() || line[0] == '%' )
+         continue;
+
+      // line needs to be completed -> only one line at a time
+      if( line.find("weak") != string::npos )
       {
-         passData* queueData = new passData[1];
-         //queueData->passLp();
-         queueData->passLp.setIntParam(SoPlex::READMODE, SoPlex::READMODE_RATIONAL);
-         queueData->passLp.setIntParam(SoPlex::SOLVEMODE, SoPlex::SOLVEMODE_RATIONAL);
-         queueData->passLp.setIntParam(SoPlex::CHECKMODE, SoPlex::CHECKMODE_RATIONAL);
-         queueData->passLp.setIntParam(SoPlex::SYNCMODE, SoPlex::SYNCMODE_AUTO);
-         queueData->passLp.setRealParam(SoPlex::FEASTOL, 0.0);
-         queueData->passLp.setRealParam(SoPlex::OPTTOL, 0.0);
-         queueData->passLp = workinglp;
-         circQueue.enqueue(queueData);
+         toCompleteLines.push_back(lineindex);
+         pushLineToConstraints(line, lineindex);
+         auto constraint = constraints[lineindex];
+         basic_string<char> constraintname = line.substr(0, line.find(' '));
+
+         int consense = constraint.sense;
+         Rational& rhs = constraint.side;
+         DSVectorPointer row = constraint.vec;
+
+         auto derivationstart = line.find("lin");
+         stringstream linestream(line.substr(derivationstart + 3));
+         string numberOfCoefficients;
+         linestream >> numberOfCoefficients;
+//         assert(numberOfDerivations == "weak")
+         stringstream completedDerivation;
+         vector<long> activeDerivations;
+         auto retval = completeWeakDomination(*row, consense, rhs, completedDerivation, linestream, constraintname);
+         completedDerivation << " -1 ";
+         completedFile << line.substr(0,derivationstart + 3) + completedDerivation.str() << endl;
       }
-   }
-
-   // reset the line index
-   lineindex = 0;
-
-   gettimeofday( &end, 0 );
-   cout << endl << "processing file into memory took " << getTimeSecs(start, end)
-        << " seconds (Wall Clock)" << endl;
-
-   gettimeofday( &start, 0 );
-
-
-   // pipeline to complete the derivations
-   tbb::parallel_pipeline(nthreads,
-      // sequential filter to manage the circular buffer and to ensure output is in correct order
-      tbb::make_filter<void, parallelData>( tbb::filter_mode::serial_in_order,
-         [&]( tbb::flow_control& fc) {
-            parallelData returnData;
-            while(lineindex != toCompleteLines.size())
-            {
-               if( usesoplex )
-                  returnData.bufData = circQueue.dequeue();
-               returnData.conidx.push_back(toCompleteLines[lineindex]);
-               lineindex++;
-               return returnData;
-            }
-            fc.stop();
-            return returnData;
-         }
-      ) &
-      // parallel processing and completion of derivations -> passes completed line to last filter
-      tbb::make_filter<parallelData, parallelData>( tbb::filter_mode::parallel,
-         [&]( parallelData returnData ) {
-            returnData.line = completelin(returnData.bufData->passLp, returnData.bufData->LProwCertificateMap, constraints[returnData.conidx[0]]);
-            return returnData;
-         }
-      ) &
-      //  manages the queueing of the circular buffer and pushes the completed lines to a vector in the correct order
-      tbb::make_filter<parallelData, void>( tbb::filter_mode::serial_in_order,
-            [&]( parallelData returnData ) {
-
-            completedlines.push_back(returnData.line);
-            if( usesoplex )
-               circQueue.enqueue(returnData.bufData);
-            }
-         )
-      );
-
-   if( usesoplex )
-   {
-      while(!circQueue.isEmpty())
+      else
       {
-         passData* data = circQueue.dequeue();
-         delete[] data;
+         pushLineToConstraints(line, lineindex);
+         completedFile << line << endl;
       }
+      lineindex++;
    }
-
-
+//   circBuf circQueue(0);
+//
+//   // generate and queue the LPs that are needed in parallel
+//   if( usesoplex )
+//   {
+//      circQueue.resize(2 * nthreads);
+//      for(int i = 0; i < 2 * nthreads; ++i)
+//      {
+//         passData* queueData = new passData[1];
+//         //queueData->passLp();
+//         queueData->passLp.setIntParam(SoPlex::READMODE, SoPlex::READMODE_RATIONAL);
+//         queueData->passLp.setIntParam(SoPlex::SOLVEMODE, SoPlex::SOLVEMODE_RATIONAL);
+//         queueData->passLp.setIntParam(SoPlex::CHECKMODE, SoPlex::CHECKMODE_RATIONAL);
+//         queueData->passLp.setIntParam(SoPlex::SYNCMODE, SoPlex::SYNCMODE_AUTO);
+//         queueData->passLp.setRealParam(SoPlex::FEASTOL, 0.0);
+//         queueData->passLp.setRealParam(SoPlex::OPTTOL, 0.0);
+//         queueData->passLp = workinglp;
+//         circQueue.enqueue(queueData);
+//      }
+//   }
+//
+//   // reset the line index
+//   lineindex = 0;
+//
+//   gettimeofday( &end, 0 );
+//   cout << endl << "processing file into memory took " << getTimeSecs(start, end)
+//        << " seconds (Wall Clock)" << endl;
+//
+//   gettimeofday( &start, 0 );
+//
+//
+//   // pipeline to complete the derivations
+//   tbb::parallel_pipeline(nthreads,
+//      // sequential filter to manage the circular buffer and to ensure output is in correct order
+//      tbb::make_filter<void, parallelData>( tbb::filter_mode::serial_in_order,
+//         [&]( tbb::flow_control& fc) {
+//            parallelData returnData;
+//            while(lineindex != toCompleteLines.size())
+//            {
+//               if( usesoplex )
+//                  returnData.bufData = circQueue.dequeue();
+//               returnData.conidx.push_back(toCompleteLines[lineindex]);
+//               lineindex++;
+//               return returnData;
+//            }
+//            fc.stop();
+//            return returnData;
+//         }
+//      ) &
+//      // parallel processing and completion of derivations -> passes completed line to last filter
+//      tbb::make_filter<parallelData, parallelData>( tbb::filter_mode::parallel,
+//         [&]( parallelData returnData ) {
+//            returnData.line = completelin(returnData.bufData->passLp, returnData.bufData->LProwCertificateMap, constraints[returnData.conidx[0]]);
+//            return returnData;
+//         }
+//      ) &
+//      //  manages the queueing of the circular buffer and pushes the completed lines to a vector in the correct order
+//      tbb::make_filter<parallelData, void>( tbb::filter_mode::serial_in_order,
+//            [&]( parallelData returnData ) {
+//
+//            completedlines.push_back(returnData.line);
+//            if( usesoplex )
+//               circQueue.enqueue(returnData.bufData);
+//            }
+//         )
+//      );
+//
+//   if( usesoplex )
+//   {
+//      while(!circQueue.isEmpty())
+//      {
+//         passData* data = circQueue.dequeue();
+//         delete[] data;
+//      }
+//   }
+//
+//
    gettimeofday( &end, 0 );
    cout << endl << "processing completion pipeline took " << getTimeSecs(start, end)
         << " seconds (Wall Clock)" << endl;
+//
+//   gettimeofday(&start, 0 );
+//
+//   // output the lines to the certificate
+//   int c = 0;
+//   completedFile << endl;
+//   for( auto i = numberOfConstraints; i < constraints.size(); ++i )
+//   {
+//      if( toCompleteLines.size() == 0 || c >= toCompleteLines.size() || i != toCompleteLines[c] )
+//         completedFile << constraints[i].line << endl;
+//      else
+//      {
+//         completedFile << completedlines[c] << endl;
+//         c++;
+//      }
+//   }
 
-   gettimeofday(&start, 0 );
-
-   // output the lines to the certificate
-   int c = 0;
-   completedFile << endl;
-   for( auto i = numberOfConstraints; i < constraints.size(); ++i )
-   {
-      if( toCompleteLines.size() == 0 || c >= toCompleteLines.size() || i != toCompleteLines[c] )
-         completedFile << constraints[i].line << endl;
-      else
-      {
-         completedFile << completedlines[c] << endl;
-         c++;
-      }
-   }
-
-   gettimeofday( &end, 0 );
-   cout << endl << "writing to file took " << getTimeSecs(start, end)
-        << " seconds (Wall Clock)" << endl << endl;
+//   gettimeofday( &end, 0 );
+//   cout << endl << "writing to file took " << getTimeSecs(start, end)
+//        << " seconds (Wall Clock)" << endl << endl;
 
    std::cout << "Completed " << toCompleteLines.size() << " out of " << numberOfDerivations << endl;
    return true;
