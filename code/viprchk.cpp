@@ -848,6 +848,7 @@ bool processSOL()
       }
       else if( relationToProveType == RelationToProveType::RANGE && ((isMin && checkUpper) || (!isMin && checkLower)) )
       {
+         assert ( numberOfSolutions == 0 );
          cerr << "No solutions to prove primal bound." << endl;
          goto TERMINATE;
       }
