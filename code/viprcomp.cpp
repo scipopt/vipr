@@ -86,7 +86,7 @@ size_t numberOfVariables;
 
 unsigned int nthreads = 1;
 
-struct Constraint {DSVectorPointer vec; Rational side; int sense; string line;}; // @todo: take care of deep copies here!
+struct Constraint {DSVectorPointer vec; Rational side; int sense; }; // @todo: take care of deep copies here!
 vector<Constraint> constraints;
 
 typedef boost::bimap<int, long> bimap; // maps rows of the LP to corresponding indices in the certificate used for updating the local LPs
@@ -177,7 +177,6 @@ bool processRTP();
 bool processSOL();
 bool processDER( SoPlex workinglp );
 bool getConstraints( SoPlex &workinglp, string &consense, Rational &rhs, int &activeConstraint, size_t currentDerivation);
-std::string completelin( SoPlex &workinglp, bimap& LProwCertificateMap, Constraint &constraint);
 
 static bool completeWeakDomination(DSVectorRational &row, int consense, Rational &rhs, stringstream& completedLine,
                                     stringstream &initialLine, string& constraintname);
@@ -887,7 +886,7 @@ static size_t pushLineToConstraints(string& line, size_t conidx)
          cerr << "wrong sense for constraints " << consense << endl;
          break;
    }
-   constraints[conidx] = {row, rhs, sense, line};
+   constraints[conidx] = {row, rhs, sense};
    return constraints.size() - 1;
 }
 
@@ -1273,79 +1272,11 @@ bool getConstraints(SoPlex &workinglp, string &consense, Rational &rhs, int &act
          returnStatement = false;
    }
 
-   constraints.push_back({row, Rational(rhs), sense, ""});
+   constraints.push_back({row, Rational(rhs), sense });
 
    return returnStatement;
 }
 
-string completelin( SoPlex &workinglp,  bimap& LProwCertificateMap, Constraint& constraint)
-{
-   string& line = constraint.line;
-   int consense = constraint.sense;
-   Rational& rhs = constraint.side;
-   DSVectorPointer row = constraint.vec;
-
-   auto derivationstart = line.find("lin");
-   stringstream linestream(line.substr(derivationstart + 3));
-   stringstream completedDerivation;
-   string numberOfCoefficients;
-   vector<long> activeDerivations;
-
-   bool retval = true;
-
-   linestream >> numberOfCoefficients;
-
-   if( numberOfCoefficients == "incomplete" )
-   {
-      string tmp;
-
-      assert(usesoplex);
-      if( !usesoplex )
-      {
-         cerr << "Soplex support must be enabled to process incomplete constraint type. Rerun with parameter soplex=ON." << endl;
-         return "";
-      }
-      VectorRational newObjective(0);
-      newObjective.reSize(workinglp.numColsRational());
-      newObjective.reDim(workinglp.numColsRational());
-      newObjective = *row;
-      workinglp.changeObjRational(newObjective);
-
-      // workinglp.setRealParam(SoPlex::TIMELIMIT, 10.0);
-
-      assert( consense == 0 || consense == -1 || consense == 1);
-
-      if( consense >= 0 )
-         workinglp.setIntParam(SoPlex::OBJSENSE, SoPlex::OBJSENSE_MINIMIZE);
-      else
-         workinglp.setIntParam(SoPlex::OBJSENSE, SoPlex::OBJSENSE_MAXIMIZE);
-
-      linestream >> tmp;
-      while( tmp != "}" )
-      {
-         activeDerivations.push_back(stol(tmp));
-         linestream >> tmp;
-      }
-      linestream.seekg(0);
-      retval = completeIncomplete( workinglp, LProwCertificateMap, activeDerivations, "", completedDerivation, linestream );
-#ifndef NDEBUG
-      cout << "Completed derivation: " << line.substr(0,10) << endl;
-#endif
-   }
-   else if( numberOfCoefficients == "weak" )
-   {
-      basic_string<char> constraintname = line.substr(0, line.find(' '));
-      retval = completeWeakDomination(*row, consense, rhs, completedDerivation, linestream, constraintname);
-   }
-   else
-      cerr << "Wrong type of derivation: " << numberOfCoefficients << endl;
-
-   completedDerivation << " -1 ";
-
-   string completedstring = line.substr(0,derivationstart + 3) + completedDerivation.str();
-   return completedstring;
-
-}
 
 // Reads multipliers for completing weak domination
 static bool readMultipliers( int &sense, SVectorRat &mult, stringstream &baseLine )
