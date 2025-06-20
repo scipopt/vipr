@@ -70,6 +70,12 @@ enum RelationToProveType
    RANGE   // lower bound (-inf if none) and upper bound (inf if none) to be verified
 };
 
+// Return codes
+enum ViprStatus
+{
+   OKAY = 0,
+   ERROR = -1
+};
 
 // Classes
 // Sparse vectors of rational numbers as maps
@@ -268,13 +274,10 @@ bool readLinComb( int &sense, mpq_class &rhs, shared_ptr<SVectorGMP> coef,
 // Main function
 int main(int argc, char *argv[])
 {
-
-   int returnStatement = -1;
-
    if( argc != 2 )
    {
       cerr << "Usage: " << argv[0] << " <certificate filename>\n";
-      return returnStatement;
+      return ViprStatus::ERROR;
    }
 
    certificateFile.open(argv[1]);
@@ -282,7 +285,7 @@ int main(int argc, char *argv[])
    if( certificateFile.fail() )
    {
       cerr << "Failed to open file " << argv[1] << endl;
-      return returnStatement;
+      return ViprStatus::ERROR;
    }
 
    double start_cpu_tm = clock();
@@ -294,15 +297,16 @@ int main(int argc, char *argv[])
                   if( processRTP() )
                      if( processSOL() )
                         if( processDER() ) {
-                           returnStatement = 0;
                            double cpu_dur = (clock() - start_cpu_tm)
                                             / (double)CLOCKS_PER_SEC;
 
                            cout << endl << "Completed in " << cpu_dur
                                 << " seconds (CPU)" << endl;
+                           return ViprStatus::OKAY;
                         }
 
-   return returnStatement;
+   cout << endl << "Verification failed." << endl;
+   return ViprStatus::ERROR;
 }
 
 
@@ -843,6 +847,16 @@ bool processSOL()
             cerr << "Best objective values (" << bestObjectiveValue<< ")  exceeds lower bound (" << lowerBound << ")." << endl;
             goto TERMINATE;
          }
+         else
+         {
+            cout << "Successfully checked solution for feasibility." << endl;
+         }
+      }
+      else if( relationToProveType == RelationToProveType::RANGE && ((isMin && checkUpper) || (!isMin && checkLower)) )
+      {
+         assert ( numberOfSolutions == 0 );
+         cerr << "No solutions to prove primal bound." << endl;
+         goto TERMINATE;
       }
 
       returnStatement = true;
@@ -877,25 +891,14 @@ bool processDER()
 
    cout << "numberOfDerivations = " << numberOfDerivations << endl;
 
-
-   // No lower bound to check and no deriviations -> nothing to do
-   if( numberOfDerivations == 0 && !checkLower )
+   if( relationToProveType == RelationToProveType::RANGE )
    {
-      cout << "Successfully checked solution for feasibility" << endl;
-      return true;
-   }
-
-   // no upper bound to check and no deriviations -> nothing to do
-   if( numberOfDerivations == 0 && !checkUpper )
-   {
-      cout << "Successfully checked solution for feasibility" << endl;
-      return true;
-   }
-
-   if( (isMin && !checkLower) || (!isMin && !checkUpper) )
-   {
-      cout << "Dual bound of RTP is a tautology: Successfully verified." << endl;
-      return true;
+      if( (isMin && !checkLower) || (!isMin && !checkUpper) )
+      {
+         cout << "Dual bound of RTP is a tautology." << endl;
+         cout << "Successfully verified." << endl;
+         return true;
+      }
    }
    assert(!relationToProve.isTautology());
 
@@ -1155,7 +1158,7 @@ bool processDER()
    // Print potential reasons for errors
    if( assumptionList != emptyList )
    {
-      cout << "Final derived constraint contains undischarged assumptions:" << endl;
+      cout << "Failed: Final derived constraint contains undischarged assumptions:" << endl;
       for(auto & it : assumptionList)
          cout << it.first << ": " << constraint[ it.first ].label() << endl;
    }
@@ -1166,7 +1169,7 @@ bool processDER()
       else if( isMin && checkLower )
          cout << "Failed to derive lower bound." << endl;
       else if( !isMin && checkUpper )
-            cout << "Failed to derive upper bound." << endl;
+         cout << "Failed to derive upper bound." << endl;
 
       cout << "Proved: " << endl;
       constraint.back().print();
