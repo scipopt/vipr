@@ -16,6 +16,11 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
 # path to find modules
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
 
+# FindBoost is removed in version cmake 3.30
+if(POLICY CMP0167)
+	cmake_policy(SET CMP0167 NEW)
+endif()
+
 # Set default build type to Release if not specified
 if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -62,9 +67,9 @@ target_link_libraries(viprchk_parallel ${libs})
 target_link_libraries(viprchk_parallel TBB::tbb)
 
 
-set(BOOST_MIN_VERION 1.71)
+set(BOOST_MIN_VERSION 1.71)
 if(VIPRCOMP)
-	find_package(Boost ${BOOST_MIN_VERION} REQUIRED)
+	find_package(Boost ${BOOST_MIN_VERSION} REQUIRED)
 	if(Boost_FOUND)
 		include_directories(${Boost_INCLUDE_DIRS})
 	endif()
