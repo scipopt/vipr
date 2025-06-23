@@ -38,9 +38,6 @@
 // Timing
 #include <sys/time.h>
 
-// Parallelization
-#include <tbb/tbb.h>
-
 // Namespaces
 using namespace std;
 using namespace soplex;
@@ -84,8 +81,6 @@ vector<string> variableNames; // variable names
 DSVectorPointer ObjCoeff(make_shared<DSVectorRational>()); // sparse vector of objective coefficients
 size_t numberOfVariables;
 
-unsigned int nthreads = 1;
-
 struct Constraint {DSVectorPointer vec; Rational side; int sense; }; // @todo: take care of deep copies here!
 vector<Constraint> constraints;
 
@@ -97,73 +92,6 @@ vector<tuple<Rational,Rational,long>> upperBounds; // rational boundval, multipl
 
 
 struct passData { SoPlex passLp; bimap LProwCertificateMap;};
-struct parallelData { passData* bufData; stringstream linestream; bool needscompletion; std::vector<size_t> conidx; string line;};
-
-// circular buffer (also known as ring buffer, circular queue, cyclic queue), references:
-// https://oneapi-src.github.io/oneTBB/main/tbb_userguide/Using_Circular_Buffers.html
-// https://stackoverflow.com/a/15167828/15777342
-class circBuf
-{
-   int tail, head, size;
-   std::vector<passData*> arr;
-   public:
-   circBuf( int maxtokens )
-   {
-      head = tail = -1;
-      size = maxtokens;
-      arr.resize(maxtokens);
-   }
-   /// assignment operator
-   void resize( int maxtokens )
-   {
-      head = tail = -1;
-      size = maxtokens;
-      arr.resize(maxtokens);
-   }
-   void enqueue(passData* warmStartData);
-   passData* dequeue();
-   bool isEmpty() { return head == -1; }
-};
-
-void circBuf::enqueue( passData* warmStartData )
-{
-   if( head == -1 )
-   {
-      head = tail = 0;
-      arr[tail] = warmStartData;
-   }
-   else if( (tail == size-1) && (head != 0) )
-   {
-      tail = 0;
-      arr[tail] = warmStartData;
-   }
-   else
-   {
-      tail++;
-      arr[tail] = warmStartData;
-   }
-}
-
-passData* circBuf::dequeue()
-{
-   passData* data = arr[head];
-   if( head == tail )
-   {
-      head = -1;
-      tail = -1;
-   }
-   else if( head == size-1 )
-   {
-      head = 0;
-   }
-   else
-   {
-      head++;
-   }
-   return data;
-}
-
-
 
 // Forward declaration
 void modifyFileName( string &path, const string &newExtension );
@@ -231,7 +159,6 @@ static void printUsage(const char* const argv[], int idx)
       \n                        turn off to boost performance if only weak derivations are present.\n"
       "  --debugmode=on/off    enable extra debug output from viprcomp\n"
       "  --verbosity=<level>   set verbosity level inside SoPlex\n"
-      "  --threads=<number>    maximal number of threads to use \n"
       "\n";
    if(idx <= 0)
       cerr << "missing input file\n\n";
@@ -342,23 +269,6 @@ int main(int argc, char *argv[])
                cout << "Unknown input for SoPlex suopport (on/off expected). Read "
                << string(str) << " instead" << endl;
                cout << "Continue with default setings (SoPlex on)" << endl;
-            }
-         }
-         // set maximal number of threads that should be used
-         else if(strncmp(option, "threads=", 8) == 0)
-         {
-            char* str = &option[8];
-            if( isdigit(option[8]))
-            {
-               int maxthreads = atoi(str);
-               if( maxthreads < 0 || maxthreads > thread::hardware_concurrency() )
-               {
-                  cerr << "threads outside of valid range: specified " << maxthreads << " but maximal number is " << thread::hardware_concurrency() << endl;
-                  printUsage(argv, optidx);
-                  return 1;
-               }
-               else
-                  nthreads = maxthreads;
             }
          }
          else if(strncmp(option, "outfile=", 8) == 0)
@@ -890,82 +800,6 @@ static size_t pushLineToConstraints(string& line, size_t conidx)
    return constraints.size() - 1;
 }
 
-// read data from certificateFile and buffer it correctly in the stringstream of returnData
-static void processSequentialInputFilter(parallelData& returnData, size_t& lineindex, tbb::flow_control& fc)
-{
-   string line;
-   bool stop = false;
-   int nbufferedlines = 0;
-
-   stringstream passstream;
-   bool lineneedscompletion = false;
-   size_t filepos = certificateFile.tellg();
-
-   while( !stop && getline(certificateFile, line) )
-   {
-      lineneedscompletion = (line.find("weak") != string::npos) || (line.find("incomplete") != string::npos);
-      // line needs to be completed -> only one line at a time
-      if( lineneedscompletion )
-      {
-         if( nbufferedlines == 0 )
-         {
-            returnData.conidx.push_back(lineindex);
-            pushLineToConstraints(line, lineindex);
-            lineindex++;
-            nbufferedlines++;
-            passstream << line;
-            stop = true;
-         }
-         else
-         {
-            // reset to beginning of line
-            certificateFile.seekg(filepos);
-            stop = true;
-            lineneedscompletion = false;
-         }
-      }
-      else
-      {
-         returnData.conidx.push_back(lineindex);
-         pushLineToConstraints(line, lineindex);
-         lineindex++;
-         passstream << line << std::endl;
-         nbufferedlines++;
-         if( nbufferedlines >= 10 )
-            stop = true;
-      }
-      filepos = certificateFile.tellg();
-   }
-
-   returnData.needscompletion = lineneedscompletion;
-
-   if( nbufferedlines > 0 )
-      returnData.linestream << passstream.rdbuf();
-   else
-      fc.stop();
-}
-
-// read data from certificateFile and buffer it correctly in the stringstream of returnData
-static void readFileIntoMemory(size_t initialLine, std::vector<size_t>& toCompleteLines)
-{
-   string line;
-   size_t lineindex = initialLine;
-   bool lineneedscompletion = false;
-
-   while( getline(certificateFile, line) )
-   {
-      if( line.length() == 0 || line[0] == '%' )
-         continue;
-
-      lineneedscompletion = (line.find("weak") != string::npos) || (line.find("incomplete") != string::npos);
-      // line needs to be completed -> only one line at a time
-      if( lineneedscompletion )
-         toCompleteLines.push_back(lineindex);
-
-      pushLineToConstraints(line, lineindex);
-      lineindex++;
-   }
-}
 
 bool processDER(SoPlex workinglp)
 {
@@ -1006,11 +840,7 @@ bool processDER(SoPlex workinglp)
    // skip to next line
    certificateFile.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-   cout << "Available threads: " << nthreads << endl;
-
    lineindex = numberOfConstraints;
-
-//   readFileIntoMemory(lineindex, toCompleteLines);
 
    string line;
    bool lineneedscompletion = false;
@@ -1037,7 +867,6 @@ bool processDER(SoPlex workinglp)
          stringstream linestream(line.substr(derivationstart + 3));
          string numberOfCoefficients;
          linestream >> numberOfCoefficients;
-//         assert(numberOfDerivations == "weak")
          stringstream completedDerivation;
          vector<long> activeDerivations;
          auto retval = completeWeakDomination(*row, consense, rhs, completedDerivation, linestream, constraintname);
@@ -1051,106 +880,9 @@ bool processDER(SoPlex workinglp)
       }
       lineindex++;
    }
-//   circBuf circQueue(0);
-//
-//   // generate and queue the LPs that are needed in parallel
-//   if( usesoplex )
-//   {
-//      circQueue.resize(2 * nthreads);
-//      for(int i = 0; i < 2 * nthreads; ++i)
-//      {
-//         passData* queueData = new passData[1];
-//         //queueData->passLp();
-//         queueData->passLp.setIntParam(SoPlex::READMODE, SoPlex::READMODE_RATIONAL);
-//         queueData->passLp.setIntParam(SoPlex::SOLVEMODE, SoPlex::SOLVEMODE_RATIONAL);
-//         queueData->passLp.setIntParam(SoPlex::CHECKMODE, SoPlex::CHECKMODE_RATIONAL);
-//         queueData->passLp.setIntParam(SoPlex::SYNCMODE, SoPlex::SYNCMODE_AUTO);
-//         queueData->passLp.setRealParam(SoPlex::FEASTOL, 0.0);
-//         queueData->passLp.setRealParam(SoPlex::OPTTOL, 0.0);
-//         queueData->passLp = workinglp;
-//         circQueue.enqueue(queueData);
-//      }
-//   }
-//
-//   // reset the line index
-//   lineindex = 0;
-//
-//   gettimeofday( &end, 0 );
-//   cout << endl << "processing file into memory took " << getTimeSecs(start, end)
-//        << " seconds (Wall Clock)" << endl;
-//
-//   gettimeofday( &start, 0 );
-//
-//
-//   // pipeline to complete the derivations
-//   tbb::parallel_pipeline(nthreads,
-//      // sequential filter to manage the circular buffer and to ensure output is in correct order
-//      tbb::make_filter<void, parallelData>( tbb::filter_mode::serial_in_order,
-//         [&]( tbb::flow_control& fc) {
-//            parallelData returnData;
-//            while(lineindex != toCompleteLines.size())
-//            {
-//               if( usesoplex )
-//                  returnData.bufData = circQueue.dequeue();
-//               returnData.conidx.push_back(toCompleteLines[lineindex]);
-//               lineindex++;
-//               return returnData;
-//            }
-//            fc.stop();
-//            return returnData;
-//         }
-//      ) &
-//      // parallel processing and completion of derivations -> passes completed line to last filter
-//      tbb::make_filter<parallelData, parallelData>( tbb::filter_mode::parallel,
-//         [&]( parallelData returnData ) {
-//            returnData.line = completelin(returnData.bufData->passLp, returnData.bufData->LProwCertificateMap, constraints[returnData.conidx[0]]);
-//            return returnData;
-//         }
-//      ) &
-//      //  manages the queueing of the circular buffer and pushes the completed lines to a vector in the correct order
-//      tbb::make_filter<parallelData, void>( tbb::filter_mode::serial_in_order,
-//            [&]( parallelData returnData ) {
-//
-//            completedlines.push_back(returnData.line);
-//            if( usesoplex )
-//               circQueue.enqueue(returnData.bufData);
-//            }
-//         )
-//      );
-//
-//   if( usesoplex )
-//   {
-//      while(!circQueue.isEmpty())
-//      {
-//         passData* data = circQueue.dequeue();
-//         delete[] data;
-//      }
-//   }
-//
-//
-   gettimeofday( &end, 0 );
-   cout << endl << "processing completion pipeline took " << getTimeSecs(start, end)
-        << " seconds (Wall Clock)" << endl;
-//
-//   gettimeofday(&start, 0 );
-//
-//   // output the lines to the certificate
-//   int c = 0;
-//   completedFile << endl;
-//   for( auto i = numberOfConstraints; i < constraints.size(); ++i )
-//   {
-//      if( toCompleteLines.size() == 0 || c >= toCompleteLines.size() || i != toCompleteLines[c] )
-//         completedFile << constraints[i].line << endl;
-//      else
-//      {
-//         completedFile << completedlines[c] << endl;
-//         c++;
-//      }
-//   }
 
-//   gettimeofday( &end, 0 );
-//   cout << endl << "writing to file took " << getTimeSecs(start, end)
-//        << " seconds (Wall Clock)" << endl << endl;
+   gettimeofday( &end, 0 );
+   cout << endl << "completing took " << getTimeSecs(start, end) << " seconds (Wall Clock)" << endl;
 
    std::cout << "Completed " << toCompleteLines.size() << " out of " << numberOfDerivations << endl;
    return true;
