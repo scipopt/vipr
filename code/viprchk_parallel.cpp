@@ -1198,7 +1198,7 @@ bool parCheck_Der()
    {
       if( constraint.back().isFalsehood() )
       {
-         cout << "Infeasibility verified." << endl;
+         cout << "Successfully verified infeasibility." << endl;
          returnStatement = true;
       }
       else

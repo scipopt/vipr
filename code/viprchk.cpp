@@ -1116,7 +1116,7 @@ bool processDER()
       {
          if( relationToProveType == RelationToProveType::INFEAS && constraint.back().isFalsehood() )
          {
-            cout << "Infeasibility verified." << endl;
+            cout << "Successfully verified infeasibility." << endl;
             return true;
          }
          else if( relationToProveType == RelationToProveType::RANGE && constraint.back().hasObjectiveCoefficients() && constraint.back().dominates(relationToProve) )
