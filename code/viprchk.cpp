@@ -1037,19 +1037,19 @@ bool processDER()
 
                if( certificateFile.fail() )
                {
-                  cerr << "Error reading con1 asm1 con2 asm2" << endl;
+                  cerr << "Error reading unsplit " << label  <<": con1 asm1 con2 asm2" << endl;
                   return false;
                }
 
-               if( (con1 < 0) || (con1 >= newConIdx) )
+               if( con1 < 0 || con1 >= newConIdx )
                {
-                  cerr << "con1 out of bounds: " << con1 << endl;
+                  cerr << "Error reading unsplit " << label << ": con1 out of bounds: " << con1 << endl;
                   return false;
                }
 
-               if( (con2 < 0) || (con2 >= newConIdx) )
+               if( con2 < 0 || con2 >= newConIdx )
                {
-                  cerr << "con2 out of bounds: " << con2 << endl;
+                  cerr << "Error reading unsplit " << label << ": con2 out of bounds: " << con2 << endl;
                   return false;
                }
 
