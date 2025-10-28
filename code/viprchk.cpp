@@ -851,6 +851,18 @@ TERMINATE:
    return returnStatement;
 }
 
+
+int parseNumber(const std::string& s) {
+   // find first digit
+   std::size_t pos = 0;
+   while (pos < s.size() && !std::isdigit(static_cast<unsigned char>(s[pos])))
+      ++pos;
+
+   if (pos == s.size()) throw std::invalid_argument("no digits in string");
+
+   return std::stoi(s.substr(pos));
+}
+
 // Processes derived constraints
 // Checks derivation types and derived constraints
 // Finally confirms or rejects Solution and/or relation to prove
@@ -888,6 +900,7 @@ bool processDER()
    string label;
    int sense;
    mpq_class rhs;
+   bool warning_issued = false;
 
    for( int i = 0; i < numberOfDerivations; ++i )
    {
@@ -896,6 +909,7 @@ bool processDER()
 
       if( !readConstraint(label, sense, rhs, coef, coefEqualsObj) )
          return false;
+
 
       if( label[0] == '%' )
       {
@@ -912,27 +926,29 @@ bool processDER()
 
       certificateFile >> bracket >> kind;
 
+
+
       if( bracket != "{" )
       {
          cerr << "Expecting { but read instead " << bracket << endl;
          return false;
       }
 
-      DerivationType derivationType = DerivationType::UNKNOWN;
+      DerivationType derivationType = UNKNOWN;
 
       if( kind == "asm" )
-         derivationType = DerivationType::ASM;
+         derivationType = ASM;
       else if( kind == "sol" )
-         derivationType = DerivationType::SOL;
+         derivationType = SOL;
       else if( kind == "lin" )
-         derivationType = DerivationType::LIN;
+         derivationType = LIN;
       else if( kind == "rnd" )
-         derivationType = DerivationType::RND;
+         derivationType = RND;
       else if( kind == "uns" )
-         derivationType = DerivationType::UNS;
+         derivationType = UNS;
 
       // The constraint to be derived
-      Constraint toDer(label, sense, rhs, coef, (derivationType == DerivationType::ASM), emptyList);
+      Constraint toDer(label, sense, rhs, coef, (derivationType == ASM), emptyList);
       if( coefEqualsObj )
          toDer.markObjectiveCoefficients();
 
@@ -943,6 +959,13 @@ bool processDER()
       SVectorBool assumptionList;
 
       int newConIdx = constraint.size();
+
+      if ( !warning_issued && parseNumber(label) != newConIdx) {
+         cerr << "Warning: indices are not ascending for " << label << ". This can indicate an error!"  << endl;
+         warning_issued = true;
+      }
+
+
 
       switch( derivationType )
       {
