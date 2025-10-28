@@ -3,6 +3,8 @@
 Features:
 -----------
 - checking of each derivation with empty assumptionlist while processing the DER section, terminating early if RTP is proven
+- error messages more descriptive
+- a warning is issued if the numbers in the labels are not consistent with the internal VIPR counter.
 
 Build system
 ------------
