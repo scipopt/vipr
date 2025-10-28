@@ -152,7 +152,7 @@ class Constraint
       void setassumptionList(const SVectorBool assumptionList) { _assumptionList = assumptionList; }
       SVectorBool getassumptionList() const { return _assumptionList; }
 
-      bool dominates(Constraint &other) const;
+      bool dominates(const Constraint &other) const;
       void print();
 
       void trash() { _trashed = true; _falsehood = false; _coefficients = nullptr;
@@ -1724,7 +1724,7 @@ bool Constraint::_isFalsehood()
 }
 
 
-bool Constraint::dominates(Constraint &other) const
+bool Constraint::dominates(const Constraint &other) const
 {
    bool returnStatement = false;
 
