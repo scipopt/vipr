@@ -961,7 +961,9 @@ bool processDER()
       int newConIdx = constraint.size();
 
       if ( !warning_issued && parseNumber(label) != newConIdx) {
-         cerr << "Warning: indices are not ascending for " << label << ". This can indicate an error!"  << endl;
+         cerr << "Warning: non-ascending indices for " << label 
+                << ". This may be intentional, but could also indicate an error."
+                << endl;
          warning_issued = true;
       }
 
