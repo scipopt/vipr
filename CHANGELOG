@@ -2,11 +2,13 @@
 
 Features:
 -----------
-- checking of each derivation with empty assumptionlist while processing the DER section, terminating early if RTP is proven
+- check each derivation with empty assumptionlist while processing the DER section, terminating early if RTP is proven
+- make error messages more descriptive
+- issue warning if the numbers in the labels are not consistent with the internal VIPR counter
 
 Build system
 ------------
-- Release Mode is the default CMAKE_BUILD_TYPE
+- make Release Mode the default CMAKE_BUILD_TYPE
 
 Fixed bugs
 -----------
@@ -24,15 +26,15 @@ Miscellaneous
 
 Features:
 -----------
-- handling of incomplete derivations (see Certificate Version 1.1)
+- handle incomplete derivations (see Certificate Version 1.1)
 
 Build system
 ------------
 
 Fixed bugs
 -----------
-- all constraints are now considered for checking the feasibility of solutions
-- improved error messages
+- consider all constraints for checking the feasibility of solutions
+- improve error messages
 
 Data structures
 -----------
