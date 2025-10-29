@@ -254,8 +254,8 @@ bool processDER();
 
 bool readMultipliers(int &sense, SVectorGMP &mult, std::string& label);
 bool readConstraintCoefficients(shared_ptr<SVectorGMP> &coefficients, bool& coefEqualsObj);
-bool readConstraint( string &label, int &sense, mpq_class &rhs,
-                     shared_ptr<SVectorGMP> &coefficients, bool& coefEqualsObj);
+bool readConstraint(string &label, int &sense, mpq_class &rhs,
+                    shared_ptr<SVectorGMP> &coefficients, bool& coefEqualsObj);
 
 inline mpq_class floor(const mpq_class &q); // rounding down
 inline mpq_class ceil(const mpq_class &q); // rounding up
@@ -263,13 +263,13 @@ bool isInteger(const mpq_class &q); // check if variable is integer
 
 mpq_class scalarProduct(shared_ptr<SVectorGMP> u, shared_ptr<SVectorGMP> v);
 
-bool canUnsplit(  Constraint &toDer, int con1, int a1, int con2, int a2, SVectorBool &assumptionList);
+bool canUnsplit(Constraint &toDer, int con1, int a1, int con2, int a2, SVectorBool &assumptionList);
 
-bool readLinComb( int &sense, mpq_class &rhs,
-                  const std::shared_ptr<SVectorGMP> &coefficients,
-                  int currentConstraintIndex,
-                  SVectorBool &assumptionList,
-                  std::string &label );
+bool readLinComb(int &sense, mpq_class &rhs,
+                 const std::shared_ptr<SVectorGMP> &coefficients,
+                 int currentConstraintIndex,
+                 SVectorBool &assumptionList,
+                 std::string &label );
 
 // Main function
 int main(int argc, char *argv[])
@@ -1428,8 +1428,8 @@ TERMINATE:
 // e.g. mx <= d and mx >= d+1 such that the variables indexed by
 // the support of m are integers.   The function checks this.
 // a1 and a2 are assumptions.
-bool canUnsplit(  Constraint &toDer, const int con1, const int a1,
-                  const int con2, const int a2, SVectorBool &assumptionList)
+bool canUnsplit(Constraint &toDer, const int con1, const int a1,
+                const int con2, const int a2, SVectorBool &assumptionList)
 {
 
    bool returnStatement = false;
