@@ -16,6 +16,8 @@ Fixed bugs
 - allow empty and pure comment lines in viprcomp
 - add lazy canonicalization to fix unsuccessful domination checks
 - remove compactification marker as source of unsuccessful domination checks
+- use global bound changes from the DER section (marked with "global") to complete weak derivations in viprcomp
+- terminate viprcomp with an error if a derivation cannot be completed instead of writing an invalid certificate
 
 Miscellaneous
 -----------
