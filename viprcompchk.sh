@@ -19,8 +19,8 @@ if [ ! -e ${VIPR} ]; then
 fi
 
 
-echo ">>> Executing: ${VIPR}/viprcomp ${CERTIFICATE}"
-eval "${VIPR}/viprcomp ${CERTIFICATE}"
+echo ">>> Executing: ${VIPR}/viprcompseq ${CERTIFICATE}"
+eval "${VIPR}/viprcompseq ${CERTIFICATE}"
 
 echo ">>> Executing: ${VIPR}/viprchk ${COMPLETE_CERTIFICATE}"
 eval "${VIPR}/viprchk ${COMPLETE_CERTIFICATE}"

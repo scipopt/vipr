@@ -115,31 +115,58 @@ bool completeIncomplete( SoPlex &workinglp, bimap& LProwCertificateMap, vector<l
                         stringstream &baseLine );
 bool printReasoningToLine(DVectorRational &dualmultipliers, DVectorRational &reducedcosts, stringstream& completedLine, bimap& LProwCertificateMap);
 
-// Global bound changes for completing weak
-static void processGlobalBoundChange(Rational rhs, Rational boundmult, int varindex,
-                                       long boundindex, int sense)
+// Update the global bounds of a variable from a bound constraint val * x_varindex (sense) rhs, used for completing weak
+static void updateGlobalBound(int varindex, const Rational& val, const string& consense, const Rational& rhs,
+                              long boundindex)
 {
-   char restline[256];
-   string tmpstring;
-   string lastword;
+   string normalizedSense;
+   Rational normalizedRhs;
 
-   if( certificateFile.peek() != '\n' )
+   // normalize bound constraints
+   if( consense == "E" )
+      normalizedSense = "E";
+   else if( consense == "L" )
+      normalizedSense = (sign(val) <= 0) ? "G" : "L";
+   else
+      normalizedSense = (sign(val) <= 0) ? "L" : "G";
+
+   normalizedRhs = rhs/val;
+
+   // check if normalized bound is an improvement over existing bound
+   if( normalizedSense == "E" )
    {
-      certificateFile.getline(restline, 256);
-      tmpstring = restline;
-      istringstream tmpstream(tmpstring);
-
-      while(tmpstream >> lastword)
-      {
-         if( lastword == "global" )
-         {
-            if( sense <= 0 ) // eq or ub
-               upperBounds[varindex] = make_tuple(rhs, boundmult, boundindex);
-            if( sense >= 0 ) // eq or lb
-               lowerBounds[varindex] = make_tuple(rhs, boundmult, boundindex);
-         }
-      }
+      if( get<0>(upperBounds[varindex]) > normalizedRhs )
+         upperBounds[varindex] = make_tuple(normalizedRhs, val, boundindex);
+      if( get<0>(lowerBounds[varindex]) < normalizedRhs )
+         lowerBounds[varindex] = make_tuple(normalizedRhs, val, boundindex);
    }
+   else if( normalizedSense == "L" && get<0>(upperBounds[varindex]) > normalizedRhs )
+      upperBounds[varindex] = make_tuple(normalizedRhs, val, boundindex);
+   else if( normalizedSense == "G" && get<0>(lowerBounds[varindex]) < normalizedRhs )
+      lowerBounds[varindex] = make_tuple(normalizedRhs, val, boundindex);
+}
+
+// Register a derivation of a single variable bound that is marked as "global" as global bound
+static void processGlobalBoundChange(const string& line, size_t lineindex)
+{
+   stringstream linestream(line);
+   string label, consense, numberOfCoefficients, lastword;
+   Rational rhs, val;
+   int varindex;
+
+   linestream >> label >> consense >> rhs >> numberOfCoefficients;
+
+   if( numberOfCoefficients != "1" )
+      return;
+
+   linestream >> varindex >> val;
+
+   // the derivation is a global bound change if its last word is "global"
+   while( linestream >> lastword ) {}
+   if( lastword != "global" )
+      return;
+
+   updateGlobalBound(varindex, val, consense, rhs, (long) lineindex);
 }
 
 static double getTimeSecs(timeval start, timeval end)
@@ -869,13 +896,18 @@ bool processDER(SoPlex workinglp)
          linestream >> numberOfCoefficients;
          stringstream completedDerivation;
          vector<long> activeDerivations;
-         auto retval = completeWeakDomination(*row, consense, rhs, completedDerivation, linestream, constraintname);
+         if( !completeWeakDomination(*row, consense, rhs, completedDerivation, linestream, constraintname) )
+         {
+            cerr << "Failed to complete weak derivation " << constraintname << endl;
+            return false;
+         }
          completedDerivation << " -1 ";
          completedFile << line.substr(0,derivationstart + 3) + completedDerivation.str() << endl;
       }
       else
       {
          pushLineToConstraints(line, lineindex);
+         processGlobalBoundChange(line, lineindex);
          completedFile << line << endl;
       }
       lineindex++;
@@ -925,44 +957,7 @@ bool getConstraints(SoPlex &workinglp, string &consense, Rational &rhs, int &act
          indices.push_back(idx);
       }
       if( intOfCoefficients == 1)
-      {
-
-         // normalize bound constraints
-         if( consense == "E")
-            normalizedSense = "E";
-         else if( consense == "L" )
-            if( sign(val) <= 0 )
-               normalizedSense = "G";
-            else normalizedSense = "L";
-         else
-            if( sign(val) <= 0 )
-               normalizedSense = "L";
-            else normalizedSense = "G";
-
-         normalizedRhs = rhs/val;
-
-         // check if normalized bound is an improvement over existing bound
-
-         if( normalizedSense == "E" )
-         {
-            if( get<0>(upperBounds[idx]) > normalizedRhs )
-            {
-               upperBounds[idx] = make_tuple(normalizedRhs, Rational(val), currentDerivation -1);
-            }
-            if( get<0>(lowerBounds[idx]) < normalizedRhs )
-            {
-               lowerBounds[idx] = make_tuple(normalizedRhs, Rational(val), currentDerivation -1);
-            }
-         }
-         else if( normalizedSense == "L" && get<0>(upperBounds[idx]) > normalizedRhs )
-         {
-            upperBounds[idx] = make_tuple(normalizedRhs, Rational(val), currentDerivation -1);
-         }
-         else if( normalizedSense == "G" && get<0>(lowerBounds[idx]) < normalizedRhs )
-         {
-            lowerBounds[idx] = make_tuple(normalizedRhs, Rational(val), currentDerivation -1);
-         }
-      }
+         updateGlobalBound(idx, val, consense, rhs, currentDerivation - 1);
 
       (*row).add(intOfCoefficients, indices.data(), values.data());
    }
@@ -1198,6 +1193,14 @@ static bool completeWeakDomination(DSVectorRational &row, int consense, Rational
             boundindex = get<2>(tup);
          }
 
+         if( boundindex < 0 )
+         {
+            cerr << "Failed to complete " << constraintname << ": no " << (islower ? "lower" : "upper")
+                 << " bound available for variable " << variableNames[idx] << " (idx " << idx << ")" << endl;
+            baseLine.ignore(numeric_limits<streamsize>::max(), '\n');
+            return false;
+         }
+
          multDer[boundindex] += boundmult / boundfactor;
          correctedSide += boundmult * boundval;
 
@@ -1272,6 +1275,14 @@ static bool completeWeakDomination(DSVectorRational &row, int consense, Rational
             boundfactor = get<1>(tup);
             boundval = get<0>(tup);
             boundindex = get<2>(tup);
+         }
+
+         if( boundindex < 0 )
+         {
+            cerr << "Failed to complete " << constraintname << ": no " << (islower ? "lower" : "upper")
+                 << " bound available for variable " << variableNames[idx] << " (idx " << idx << ")" << endl;
+            baseLine.ignore(numeric_limits<streamsize>::max(), '\n');
+            return false;
          }
 
          multDer[boundindex] += boundmult / boundfactor;
