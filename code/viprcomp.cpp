@@ -93,13 +93,11 @@ vector<Constraint> constraints;
 typedef boost::bimap<int, long> bimap; // maps rows of the LP to corresponding indices in the certificate used for updating the local LPs
 map<int, long> origConsCertIndex;
 
-vector<tuple<Rational,Rational,long>> lowerBounds; // rational boundval, multiplier, long certindex
-vector<tuple<Rational,Rational,long>> upperBounds; // rational boundval, multiplier, long certindex
-
-// global bound changes from the DER section per variable, sorted by certindex and each tighter than the previous one,
-// such that a derivation that is completed in parallel only uses the bounds derived before it
-vector<vector<tuple<Rational,Rational,long>>> globalLowerBoundChanges; // rational boundval, multiplier, long certindex
-vector<vector<tuple<Rational,Rational,long>>> globalUpperBoundChanges; // rational boundval, multiplier, long certindex
+// global bounds per variable: the first entry is the bound from the CON section, followed by the global bound changes
+// from the DER section, sorted by certindex and each tighter than the previous one, such that a derivation that is
+// completed in parallel only uses the bounds derived before it
+vector<vector<tuple<Rational,Rational,long>>> globalLowerBounds; // rational boundval, multiplier, long certindex
+vector<vector<tuple<Rational,Rational,long>>> globalUpperBounds; // rational boundval, multiplier, long certindex
 
 
 struct passData { SoPlex passLp; bimap LProwCertificateMap;};
@@ -218,24 +216,21 @@ static void updateGlobalBound(int varindex, const Rational& val, const string& c
    normalizeBoundConstraint(val, consense, rhs, normalizedSense, normalizedRhs);
 
    // check if normalized bound is an improvement over existing bound
-   if( (normalizedSense == "E" || normalizedSense == "L") && get<0>(upperBounds[varindex]) > normalizedRhs )
-      upperBounds[varindex] = make_tuple(normalizedRhs, val, boundindex);
-   if( (normalizedSense == "E" || normalizedSense == "G") && get<0>(lowerBounds[varindex]) < normalizedRhs )
-      lowerBounds[varindex] = make_tuple(normalizedRhs, val, boundindex);
+   if( (normalizedSense == "E" || normalizedSense == "L") && get<0>(globalUpperBounds[varindex][0]) > normalizedRhs )
+      globalUpperBounds[varindex][0] = make_tuple(normalizedRhs, val, boundindex);
+   if( (normalizedSense == "E" || normalizedSense == "G") && get<0>(globalLowerBounds[varindex][0]) < normalizedRhs )
+      globalLowerBounds[varindex][0] = make_tuple(normalizedRhs, val, boundindex);
 }
 
 // Get the tightest global bound of a variable that is derived before the constraint with index conidx
 static tuple<Rational,Rational,long> getGlobalBound(int varindex, bool islower, size_t conidx)
 {
-   const auto& changes = islower ? globalLowerBoundChanges[varindex] : globalUpperBoundChanges[varindex];
+   const auto& bounds = islower ? globalLowerBounds[varindex] : globalUpperBounds[varindex];
 
    // lower_bound returns the first bound with certindex >= conidx, hence its predecessor is the last bound derived
    // before conidx (the first entry stems from the CON section and is therefore always derived before conidx)
-   auto it = lower_bound(changes.begin(), changes.end(), (long) conidx,
-      [](const tuple<Rational,Rational,long>& change, long index) { return get<2>(change) < index; });
-
-   if( it == changes.begin() )
-      return islower ? lowerBounds[varindex] : upperBounds[varindex];
+   auto it = lower_bound(bounds.begin() + 1, bounds.end(), (long) conidx,
+      [](const tuple<Rational,Rational,long>& bound, long index) { return get<2>(bound) < index; });
 
    return *(it - 1);
 }
@@ -265,10 +260,10 @@ static void checkAndProcessGlobalBoundChange(const string& line, size_t lineinde
    // only store bound changes that are tighter than the currently known global bound
    if( (normalizedSense == "E" || normalizedSense == "L")
          && get<0>(getGlobalBound(varindex, false, lineindex)) > normalizedRhs )
-      globalUpperBoundChanges[varindex].push_back(make_tuple(normalizedRhs, val, (long) lineindex));
+      globalUpperBounds[varindex].push_back(make_tuple(normalizedRhs, val, (long) lineindex));
    if( (normalizedSense == "E" || normalizedSense == "G")
          && get<0>(getGlobalBound(varindex, true, lineindex)) < normalizedRhs )
-      globalLowerBoundChanges[varindex].push_back(make_tuple(normalizedRhs, val, (long) lineindex));
+      globalLowerBounds[varindex].push_back(make_tuple(normalizedRhs, val, (long) lineindex));
 }
 
 static double getTimeSecs(timeval start, timeval end)
@@ -600,12 +595,8 @@ bool processVAR(SoPlex &workinglp)
       {
          completedFile << " " << numberOfVariables;
 
-         upperBounds.resize( numberOfVariables );
-         lowerBounds.resize( numberOfVariables );
-         fill(upperBounds.begin(), upperBounds.end(), make_tuple(infinity, 1, -1));
-         fill(lowerBounds.begin(), lowerBounds.end(), make_tuple(-infinity, 1, -1));
-         globalUpperBoundChanges.resize( numberOfVariables );
-         globalLowerBoundChanges.resize( numberOfVariables );
+         globalUpperBounds.assign(numberOfVariables, {make_tuple(Rational(infinity), Rational(1), -1L)});
+         globalLowerBounds.assign(numberOfVariables, {make_tuple(Rational(-infinity), Rational(1), -1L)});
          for( int i = 0; i < numberOfVariables; ++i )
          {
             string tmp;
