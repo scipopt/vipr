@@ -1,0 +1,20 @@
+% Toy example for completing weak derivations with global bounds { 0 }
+% - D3 is derived before B4 and must therefore be completed with the global bound x <= 10 from the CON section
+% - B4 is a global bound change x <= 5 from the DER section (marked with "global")
+% - D5 is derived after B4 and can only be completed with the tighter global bound x <= 5
+VER 1.1
+VAR 2
+x y
+INT 0
+OBJ max
+2  0 2  1 1
+CON 3 0
+C1 L 10  1  0 1
+C2 L 8   2  0 1  1 1
+C3 G 3   1  1 1
+RTP range -inf 13
+SOL 0
+DER 3
+D3 L 18  2  0 2  1 1  { lin weak { 0 } 1  1 1 } -1
+B4 L 5   1  0 1       { lin 2  1 1  2 -1 } -1 global
+D5 L 13  OBJ        { lin weak { 0 } 1  1 1 } -1

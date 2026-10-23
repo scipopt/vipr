@@ -229,7 +229,8 @@ static tuple<Rational,Rational,long> getGlobalBound(int varindex, bool islower, 
 {
    const auto& changes = islower ? globalLowerBoundChanges[varindex] : globalUpperBoundChanges[varindex];
 
-   // first bound change that is derived at or after conidx
+   // lower_bound returns the first bound with certindex >= conidx, hence its predecessor is the last bound derived
+   // before conidx (the first entry stems from the CON section and is therefore always derived before conidx)
    auto it = lower_bound(changes.begin(), changes.end(), (long) conidx,
       [](const tuple<Rational,Rational,long>& change, long index) { return get<2>(change) < index; });
 
@@ -239,8 +240,8 @@ static tuple<Rational,Rational,long> getGlobalBound(int varindex, bool islower, 
    return *(it - 1);
 }
 
-// Register a derivation of a single variable bound that is marked as "global" as global bound change
-static void processGlobalBoundChange(const string& line, size_t lineindex)
+// Check whether the line derives a single variable bound marked as "global" and, if so, register it as global bound change
+static void checkAndProcessGlobalBoundChange(const string& line, size_t lineindex)
 {
    stringstream linestream(line);
    string label, consense, numberOfCoefficients, lastword, normalizedSense;
@@ -1022,7 +1023,7 @@ static void readFileIntoMemory(size_t initialLine, std::vector<size_t>& toComple
 
       pushLineToConstraints(line, lineindex);
       if( !lineneedscompletion )
-         processGlobalBoundChange(line, lineindex);
+         checkAndProcessGlobalBoundChange(line, lineindex);
       lineindex++;
    }
 }
