@@ -1462,12 +1462,12 @@ bool canUnsplit(Constraint &toDer, const int con1, const int a1,
       SVectorBool asm2 = c2.getassumptionList();
 
       // remove the indices involved in unsplitting
-// #ifdef MORE_DEBUG_OUTPUT
+#ifdef MORE_DEBUG_OUTPUT
       if (asm1.find(a1) == asm1.end())
          cout << "Warning: " << a1 << " not present in unsplit" << endl;
       if (asm2.find(a2) == asm2.end())
          cout << "Warning: " << a2 << " not present in unsplit" << endl;
-// #endif
+#endif
 
       asm1.erase(a1);
       asm2.erase(a2);
@@ -1475,7 +1475,7 @@ bool canUnsplit(Constraint &toDer, const int con1, const int a1,
       assumptionList.clear();
       assumptionList = asm1;
 
-// #ifdef MORE_DEBUG_OUTPUT
+#ifdef MORE_DEBUG_OUTPUT
       cout << "asm1: ";
       for( auto it = asm1.begin(); it != asm1.end(); ++it ) {
          cout << it->first << " ";
@@ -1487,7 +1487,7 @@ bool canUnsplit(Constraint &toDer, const int con1, const int a1,
          cout << it->first << " ";
       }
       cout << endl;
-// #endif
+#endif
 
       for(auto & it : asm2) {
          assumptionList[it.first] = true;

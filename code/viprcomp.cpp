@@ -28,6 +28,7 @@
 #include <vector>
 #include <map>
 #include <limits>
+#include <algorithm>
 #include "soplex.h"
 #include <memory>
 #include <soplex/dsvector.h>
@@ -92,8 +93,11 @@ vector<Constraint> constraints;
 typedef boost::bimap<int, long> bimap; // maps rows of the LP to corresponding indices in the certificate used for updating the local LPs
 map<int, long> origConsCertIndex;
 
-vector<tuple<Rational,Rational,long>> lowerBounds; // rational boundval, multiplier, long certindex
-vector<tuple<Rational,Rational,long>> upperBounds; // rational boundval, multiplier, long certindex
+// global bounds per variable: the first entry is the bound from the CON section, followed by the global bound changes
+// from the DER section, sorted by certindex and each tighter than the previous one, such that a derivation that is
+// completed in parallel only uses the bounds derived before it
+vector<vector<tuple<Rational,Rational,long>>> globalLowerBounds; // rational boundval, multiplier, long certindex
+vector<vector<tuple<Rational,Rational,long>>> globalUpperBounds; // rational boundval, multiplier, long certindex
 
 
 struct passData { SoPlex passLp; bimap LProwCertificateMap;};
@@ -177,10 +181,10 @@ bool processRTP();
 bool processSOL();
 bool processDER( SoPlex workinglp );
 bool getConstraints( SoPlex &workinglp, string &consense, Rational &rhs, int &activeConstraint, size_t currentDerivation);
-std::string completelin( SoPlex &workinglp, bimap& LProwCertificateMap, Constraint &constraint);
+std::string completelin( SoPlex &workinglp, bimap& LProwCertificateMap, Constraint &constraint, size_t conidx);
 
 static bool completeWeakDomination(DSVectorRational &row, int consense, Rational &rhs, stringstream& completedLine,
-                                    stringstream &initialLine, string& constraintname);
+                                    stringstream &initialLine, string& constraintname, size_t conidx);
 static bool readLinComb( int &sense, Rational &rhs, SVectorRat& coefficients, SVectorRat& mult,
                   int currentConstraintIndex, SVectorBool &assumptionList, stringstream &baseLine);
 static bool readMultipliers( int &sense, SVectorRat &mult, stringstream &initialLine );
@@ -188,31 +192,78 @@ bool completeIncomplete( SoPlex &workinglp, bimap& LProwCertificateMap, vector<l
                         stringstream &baseLine );
 bool printReasoningToLine(DVectorRational &dualmultipliers, DVectorRational &reducedcosts, stringstream& completedLine, bimap& LProwCertificateMap);
 
-// Global bound changes for completing weak
-static void processGlobalBoundChange(Rational rhs, Rational boundmult, int varindex,
-                                       long boundindex, int sense)
+// Normalize a bound constraint val * x (consense) rhs to x (normalizedSense) normalizedRhs
+static void normalizeBoundConstraint(const Rational& val, const string& consense, const Rational& rhs,
+                                     string& normalizedSense, Rational& normalizedRhs)
 {
-   char restline[256];
-   string tmpstring;
-   string lastword;
+   if( consense == "E" )
+      normalizedSense = "E";
+   else if( consense == "L" )
+      normalizedSense = (sign(val) <= 0) ? "G" : "L";
+   else
+      normalizedSense = (sign(val) <= 0) ? "L" : "G";
 
-   if( certificateFile.peek() != '\n' )
-   {
-      certificateFile.getline(restline, 256);
-      tmpstring = restline;
-      istringstream tmpstream(tmpstring);
+   normalizedRhs = rhs/val;
+}
 
-      while(tmpstream >> lastword)
-      {
-         if( lastword == "global" )
-         {
-            if( sense <= 0 ) // eq or ub
-               upperBounds[varindex] = make_tuple(rhs, boundmult, boundindex);
-            if( sense >= 0 ) // eq or lb
-               lowerBounds[varindex] = make_tuple(rhs, boundmult, boundindex);
-         }
-      }
-   }
+// Update the bounds of a variable from a bound constraint val * x_varindex (consense) rhs of the CON section
+static void updateGlobalBound(int varindex, const Rational& val, const string& consense, const Rational& rhs,
+                              long boundindex)
+{
+   string normalizedSense;
+   Rational normalizedRhs;
+
+   normalizeBoundConstraint(val, consense, rhs, normalizedSense, normalizedRhs);
+
+   // check if normalized bound is an improvement over existing bound
+   if( (normalizedSense == "E" || normalizedSense == "L") && get<0>(globalUpperBounds[varindex][0]) > normalizedRhs )
+      globalUpperBounds[varindex][0] = make_tuple(normalizedRhs, val, boundindex);
+   if( (normalizedSense == "E" || normalizedSense == "G") && get<0>(globalLowerBounds[varindex][0]) < normalizedRhs )
+      globalLowerBounds[varindex][0] = make_tuple(normalizedRhs, val, boundindex);
+}
+
+// Get the tightest global bound of a variable that is derived before the constraint with index conidx
+static tuple<Rational,Rational,long> getGlobalBound(int varindex, bool islower, size_t conidx)
+{
+   const auto& bounds = islower ? globalLowerBounds[varindex] : globalUpperBounds[varindex];
+
+   // lower_bound returns the first bound with certindex >= conidx, hence its predecessor is the last bound derived
+   // before conidx (the first entry stems from the CON section and is therefore always derived before conidx)
+   auto it = lower_bound(bounds.begin() + 1, bounds.end(), (long) conidx,
+      [](const tuple<Rational,Rational,long>& bound, long index) { return get<2>(bound) < index; });
+
+   return *(it - 1);
+}
+
+// Check whether the line derives a single variable bound marked as "global" and, if so, register it as global bound change
+static void checkAndProcessGlobalBoundChange(const string& line, size_t lineindex)
+{
+   stringstream linestream(line);
+   string label, consense, numberOfCoefficients, lastword, normalizedSense;
+   Rational rhs, val, normalizedRhs;
+   int varindex;
+
+   linestream >> label >> consense >> rhs >> numberOfCoefficients;
+
+   if( numberOfCoefficients != "1" )
+      return;
+
+   linestream >> varindex >> val;
+
+   // the derivation is a global bound change if its last word is "global"
+   while( linestream >> lastword ) {}
+   if( lastword != "global" )
+      return;
+
+   normalizeBoundConstraint(val, consense, rhs, normalizedSense, normalizedRhs);
+
+   // only store bound changes that are tighter than the currently known global bound
+   if( (normalizedSense == "E" || normalizedSense == "L")
+         && get<0>(getGlobalBound(varindex, false, lineindex)) > normalizedRhs )
+      globalUpperBounds[varindex].push_back(make_tuple(normalizedRhs, val, (long) lineindex));
+   if( (normalizedSense == "E" || normalizedSense == "G")
+         && get<0>(getGlobalBound(varindex, true, lineindex)) < normalizedRhs )
+      globalLowerBounds[varindex].push_back(make_tuple(normalizedRhs, val, (long) lineindex));
 }
 
 static double getTimeSecs(timeval start, timeval end)
@@ -544,10 +595,8 @@ bool processVAR(SoPlex &workinglp)
       {
          completedFile << " " << numberOfVariables;
 
-         upperBounds.resize( numberOfVariables );
-         lowerBounds.resize( numberOfVariables );
-         fill(upperBounds.begin(), upperBounds.end(), make_tuple(infinity, 1, -1));
-         fill(lowerBounds.begin(), lowerBounds.end(), make_tuple(-infinity, 1, -1));
+         globalUpperBounds.assign(numberOfVariables, {make_tuple(Rational(infinity), Rational(1), -1L)});
+         globalLowerBounds.assign(numberOfVariables, {make_tuple(Rational(-infinity), Rational(1), -1L)});
          for( int i = 0; i < numberOfVariables; ++i )
          {
             string tmp;
@@ -964,6 +1013,8 @@ static void readFileIntoMemory(size_t initialLine, std::vector<size_t>& toComple
          toCompleteLines.push_back(lineindex);
 
       pushLineToConstraints(line, lineindex);
+      if( !lineneedscompletion )
+         checkAndProcessGlobalBoundChange(line, lineindex);
       lineindex++;
    }
 }
@@ -979,6 +1030,7 @@ bool processDER(SoPlex workinglp)
    timeval start, end;
    std::vector<size_t> toCompleteLines;
    std::vector<string> completedlines;
+   bool completionfailed = false;
 
    cout << endl << "Processing DER section... " << endl;
    certificateFile >> section;
@@ -1065,7 +1117,7 @@ bool processDER(SoPlex workinglp)
       // parallel processing and completion of derivations -> passes completed line to last filter
       tbb::make_filter<parallelData, parallelData>( tbb::filter_mode::parallel,
          [&]( parallelData returnData ) {
-            returnData.line = completelin(returnData.bufData->passLp, returnData.bufData->LProwCertificateMap, constraints[returnData.conidx[0]]);
+            returnData.line = completelin(returnData.bufData->passLp, returnData.bufData->LProwCertificateMap, constraints[returnData.conidx[0]], returnData.conidx[0]);
             return returnData;
          }
       ) &
@@ -1073,6 +1125,8 @@ bool processDER(SoPlex workinglp)
       tbb::make_filter<parallelData, void>( tbb::filter_mode::serial_in_order,
             [&]( parallelData returnData ) {
 
+            if( returnData.line.empty() )
+               completionfailed = true;
             completedlines.push_back(returnData.line);
             if( usesoplex )
                circQueue.enqueue(returnData.bufData);
@@ -1093,6 +1147,9 @@ bool processDER(SoPlex workinglp)
    gettimeofday( &end, 0 );
    cout << endl << "processing completion pipeline took " << getTimeSecs(start, end)
         << " seconds (Wall Clock)" << endl;
+
+   if( completionfailed )
+      return false;
 
    gettimeofday(&start, 0 );
 
@@ -1155,44 +1212,7 @@ bool getConstraints(SoPlex &workinglp, string &consense, Rational &rhs, int &act
          indices.push_back(idx);
       }
       if( intOfCoefficients == 1)
-      {
-
-         // normalize bound constraints
-         if( consense == "E")
-            normalizedSense = "E";
-         else if( consense == "L" )
-            if( sign(val) <= 0 )
-               normalizedSense = "G";
-            else normalizedSense = "L";
-         else
-            if( sign(val) <= 0 )
-               normalizedSense = "L";
-            else normalizedSense = "G";
-
-         normalizedRhs = rhs/val;
-
-         // check if normalized bound is an improvement over existing bound
-
-         if( normalizedSense == "E" )
-         {
-            if( get<0>(upperBounds[idx]) > normalizedRhs )
-            {
-               upperBounds[idx] = make_tuple(normalizedRhs, Rational(val), currentDerivation -1);
-            }
-            if( get<0>(lowerBounds[idx]) < normalizedRhs )
-            {
-               lowerBounds[idx] = make_tuple(normalizedRhs, Rational(val), currentDerivation -1);
-            }
-         }
-         else if( normalizedSense == "L" && get<0>(upperBounds[idx]) > normalizedRhs )
-         {
-            upperBounds[idx] = make_tuple(normalizedRhs, Rational(val), currentDerivation -1);
-         }
-         else if( normalizedSense == "G" && get<0>(lowerBounds[idx]) < normalizedRhs )
-         {
-            lowerBounds[idx] = make_tuple(normalizedRhs, Rational(val), currentDerivation -1);
-         }
-      }
+         updateGlobalBound(idx, val, consense, rhs, currentDerivation - 1);
 
       (*row).add(intOfCoefficients, indices.data(), values.data());
    }
@@ -1239,7 +1259,7 @@ bool getConstraints(SoPlex &workinglp, string &consense, Rational &rhs, int &act
    return returnStatement;
 }
 
-string completelin( SoPlex &workinglp,  bimap& LProwCertificateMap, Constraint& constraint)
+string completelin( SoPlex &workinglp,  bimap& LProwCertificateMap, Constraint& constraint, size_t conidx)
 {
    string& line = constraint.line;
    int consense = constraint.sense;
@@ -1296,10 +1316,20 @@ string completelin( SoPlex &workinglp,  bimap& LProwCertificateMap, Constraint& 
    else if( numberOfCoefficients == "weak" )
    {
       basic_string<char> constraintname = line.substr(0, line.find(' '));
-      retval = completeWeakDomination(*row, consense, rhs, completedDerivation, linestream, constraintname);
+      retval = completeWeakDomination(*row, consense, rhs, completedDerivation, linestream, constraintname, conidx);
    }
    else
+   {
       cerr << "Wrong type of derivation: " << numberOfCoefficients << endl;
+      retval = false;
+   }
+
+   // an empty string signals that the completion failed
+   if( !retval )
+   {
+      cerr << "Failed to complete derivation " + line.substr(0, line.find(' ')) + "\n" << flush;
+      return "";
+   }
 
    completedDerivation << " -1 ";
 
@@ -1395,7 +1425,7 @@ static bool readLinComb( int &sense, Rational &rhs, SVectorRat& coefficients, SV
 
 // Complete "lin"-type derivations marked "weak"
 static bool completeWeakDomination(DSVectorRational &row, int consense, Rational &rhs, stringstream& completedLine,
-                                    stringstream &baseLine, string& constraintname)
+                                    stringstream &baseLine, string& constraintname, size_t conidx)
 {
    SVectorRat coefDer;
    SVectorRat multDer;
@@ -1490,10 +1520,21 @@ static bool completeWeakDomination(DSVectorRational &row, int consense, Rational
          }
          else
          {
-            tup = islower ? lowerBounds[idx] : upperBounds[idx];
+            tup = getGlobalBound(idx, islower, conidx);
             boundfactor = get<1>(tup);
             boundval = get<0>(tup);
             boundindex = get<2>(tup);
+         }
+
+         if( boundindex < 0 )
+         {
+            // print message in one piece, since derivations are completed in parallel
+            stringstream message;
+            message << "Failed to complete " << constraintname << ": no " << (islower ? "lower" : "upper")
+                    << " bound available for variable " << variableNames[idx] << " (idx " << idx << ")\n";
+            cerr << message.str() << flush;
+            baseLine.ignore(numeric_limits<streamsize>::max(), '\n');
+            return false;
          }
 
          multDer[boundindex] += boundmult / boundfactor;
@@ -1566,10 +1607,21 @@ static bool completeWeakDomination(DSVectorRational &row, int consense, Rational
          }
          else
          {
-            tup = islower ? lowerBounds[idx] : upperBounds[idx];
+            tup = getGlobalBound(idx, islower, conidx);
             boundfactor = get<1>(tup);
             boundval = get<0>(tup);
             boundindex = get<2>(tup);
+         }
+
+         if( boundindex < 0 )
+         {
+            // print message in one piece, since derivations are completed in parallel
+            stringstream message;
+            message << "Failed to complete " << constraintname << ": no " << (islower ? "lower" : "upper")
+                    << " bound available for variable " << variableNames[idx] << " (idx " << idx << ")\n";
+            cerr << message.str() << flush;
+            baseLine.ignore(numeric_limits<streamsize>::max(), '\n');
+            return false;
          }
 
          multDer[boundindex] += boundmult / boundfactor;
