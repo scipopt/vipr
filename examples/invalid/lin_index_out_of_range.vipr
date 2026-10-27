@@ -1,0 +1,15 @@
+% INVALID certificate: lin uses constraint index 1000000 (out of range).
+VER 1.1
+VAR 1
+x
+INT 1
+0
+OBJ min
+0
+CON 2 0
+C1 G 1 1 0 1
+C2 L 1 1 0 1
+RTP infeas
+SOL 0
+DER 1
+D1 G 1 0 { lin 1 1000000 1 } -1

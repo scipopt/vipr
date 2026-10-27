@@ -653,12 +653,14 @@ bool processRTP()
          {
             checkLower = true;
             lowerBound = mpq_class(lowerStr);
+            lowerBound.canonicalize();
          }
 
          if( upperStr != "inf" )
          {
             checkUpper = true;
             upperBound = mpq_class(upperStr);
+            upperBound.canonicalize();
          }
 
 
@@ -1061,6 +1063,18 @@ bool processDER()
                   return false;
                }
 
+               if( asm1 < 0 || asm1 >= newConIdx )
+               {
+                  cerr << "Error reading unsplit " << label << ": asm1 out of bounds: " << asm1 << endl;
+                  return false;
+               }
+
+               if( asm2 < 0 || asm2 >= newConIdx )
+               {
+                  cerr << "Error reading unsplit " << label << ": asm2 out of bounds: " << asm2 << endl;
+                  return false;
+               }
+
                if( !canUnsplit(toDer, con1, asm1, con2, asm2, assumptionList) )
                {
                   cerr << label << ": unsplit failed" << endl;
@@ -1292,10 +1306,18 @@ bool readMultipliers(int &sense, SVectorGMP &mult, std::string& label)
       int index;
 
       certificateFile >> index >> a;
+      a.canonicalize(); // GMP's stream input does not canonicalize, e.g. "5/5"
 
       if( index < 0 )
       {
          cerr << "In "<< label << ": Index is out of bounds " << index << endl;
+         returnStatement = false;
+         goto TERMINATE;
+      }
+
+      if( index >= (int) constraint.size() )
+      {
+         cerr << "In " << label << ": Index out of range " << index << " (0," << constraint.size() << ")" << endl;
          returnStatement = false;
          goto TERMINATE;
       }
@@ -1367,6 +1389,7 @@ bool readConstraintCoefficients(shared_ptr<SVectorGMP> &coefficients, bool& coef
          mpq_class a;
 
          certificateFile >> index >> a;
+         a.canonicalize();
          if (certificateFile.fail()) {
             cerr << "Error reading integer-rational pair " << endl;
             goto TERMINATE;
@@ -1414,6 +1437,7 @@ bool readConstraint(string &label, int &sense, mpq_class &rhs, shared_ptr<SVecto
       }
 
       certificateFile >> rhs;
+      rhs.canonicalize();
 
       if( !certificateFile.fail() )
          returnStatement = readConstraintCoefficients(coefficients, coefEqualsObj);
@@ -1529,6 +1553,13 @@ bool canUnsplit(Constraint &toDer, const int con1, const int a1,
                  << " do not form a tautology" << endl;
             goto TERMINATE;
          };
+         // the disjunction a x <= b | a x >= b + 1 is only valid for integer b
+         if( !isInteger(branchAsm1.getRhs()) || !isInteger(branchAsm2.getRhs()) )
+         {
+            cerr << branchAsm1.label() << " and " << branchAsm2.label()
+                 << " have a fractional right-hand side" << endl;
+            goto TERMINATE;
+         }
 
          shared_ptr<SVectorGMP> c1ptr = branchAsm1.coefSVec();
          shared_ptr<SVectorGMP> c2ptr = branchAsm2.coefSVec();
@@ -1649,6 +1680,12 @@ bool Constraint::round()
             returnStatement = false;
             goto TERMINATE;
          }
+      }
+      else if( a != 0 )
+      {   // rounding is only valid if all variables in the support are integer
+         cerr << "Rounding a constraint with nonzero coefficient on continuous variable " << j << endl;
+         returnStatement = false;
+         goto TERMINATE;
       }
    }
 
