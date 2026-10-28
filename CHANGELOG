@@ -9,6 +9,7 @@ Features:
 Build system
 ------------
 - make Release Mode the default CMAKE_BUILD_TYPE
+- run the certificates in examples/ (accepted) and examples/invalid/ (rejected) with ctest
 
 Fixed bugs
 -----------

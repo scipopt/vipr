@@ -66,6 +66,25 @@ target_link_libraries(viprchk ${libs})
 target_link_libraries(viprchk_parallel ${libs})
 target_link_libraries(viprchk_parallel TBB::tbb)
 
+# tests (ctest): the certificates in examples/ must be accepted, except the incomplete ones that need viprcomp,
+# and those in examples/invalid/ must be rejected without crashing
+enable_testing()
+file(GLOB VALID_CERTIFICATES ${PROJECT_SOURCE_DIR}/../examples/*.vipr)
+list(FILTER VALID_CERTIFICATES EXCLUDE REGEX "_(incomplete|weak)\\.vipr$")
+file(GLOB INVALID_CERTIFICATES ${PROJECT_SOURCE_DIR}/../examples/invalid/*.vipr)
+foreach(checker viprchk viprchk_parallel)
+   foreach(certificate ${VALID_CERTIFICATES})
+      get_filename_component(name ${certificate} NAME_WE)
+      add_test(NAME ${checker}-valid-${name} COMMAND ${checker} ${certificate})
+   endforeach()
+   foreach(certificate ${INVALID_CERTIFICATES})
+      get_filename_component(name ${certificate} NAME_WE)
+      add_test(NAME ${checker}-invalid-${name}
+               COMMAND ${CMAKE_COMMAND} -DCHECKER=$<TARGET_FILE:${checker}> -DCERTIFICATE=${certificate}
+                       -P ${PROJECT_SOURCE_DIR}/cmake/ExpectRejection.cmake)
+   endforeach()
+endforeach()
+
 
 set(BOOST_MIN_VERSION 1.71)
 if(VIPRCOMP)
