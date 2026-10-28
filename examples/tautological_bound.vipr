@@ -1,0 +1,13 @@
+% VALID certificate: the objective is empty (0), so the lower bound -1 holds without any derivation.
+VER 1.1
+VAR 1
+x
+INT 1
+0
+OBJ min
+0
+CON 1 0
+C1 G 0 1 0 1
+RTP range -1 inf
+SOL 0
+DER 0

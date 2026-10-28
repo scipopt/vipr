@@ -26,6 +26,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <map>
 #include <vector>
@@ -579,17 +580,17 @@ bool processCON()
          int sense;
          mpq_class rhs;
 
+         returnStatement = true; // for CON 0
+
          for( int i = 0; i < numberOfConstraints; i++ )
          {
             shared_ptr<SVectorGMP> coef(make_shared<SVectorGMP>());
             bool dummy;
 
             returnStatement = readConstraint(label, sense, rhs, coef, dummy);
-            if( label[0] == '%' )
+            if( returnStatement && label[0] == '%' ) // label keeps the last comment if reading fails
             {
                i--;
-//             TODO: this is not working if the line with the comment is not containing a whitespace 
-//               if( label[ label.size( ) - 1 ] != '\n' )
                certificateFile.ignore(std::numeric_limits<std::streamsize>::max( ), '\n');
                continue;
             }
@@ -884,7 +885,15 @@ int parseNumber(const std::string& s) {
 
    if (pos == s.size()) return -1;
 
-   return std::stoi(s.substr(pos));
+   // a label such as D20261028123456789 can have more digits than an int holds, on which std::stoi() throws
+   try
+   {
+      return std::stoi(s.substr(pos));
+   }
+   catch( const std::out_of_range& )
+   {
+      return -1;
+   }
 }
 
 // Processes derived constraints
@@ -912,7 +921,8 @@ bool processDER()
 
    if( relationToProveType == RelationToProveType::RANGE )
    {
-      if( (isMin && !checkLower) || (!isMin && !checkUpper) )
+      // no dual bound, or one like 0 >= -1 for an empty objective (relationToProve is only set in the latter case)
+      if( (isMin && !checkLower) || (!isMin && !checkUpper) || relationToProve.isTautology() )
       {
          cout << "Dual bound of RTP is a tautology." << endl;
          cout << "Successfully verified." << endl;
@@ -951,8 +961,6 @@ bool processDER()
       if( label[0] == '%' )
       {
          i--;
-//       TODO: this is not working if the line with the comment is not containing a whitespace
-//         if( label[ label.size( ) - 1 ] != '\n' )
          certificateFile.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
          continue;
       }
@@ -1521,7 +1529,14 @@ bool readConstraint(string &label, int &sense, mpq_class &rhs, shared_ptr<SVecto
 
    coefEqualsObj = false;
 
-   certificateFile >> label >> senseChar;
+   certificateFile >> label;
+
+   // a comment line, which the caller skips up to its end; do not read on, which took the sense from the next line
+   // after a comment without blank and tried to read a comment such as "% Lower bound" as a constraint
+   if( !certificateFile.fail() && label[0] == '%' )
+      return true;
+
+   certificateFile >> senseChar;
 
    if( !certificateFile.fail() )
    {
@@ -1531,8 +1546,6 @@ bool readConstraint(string &label, int &sense, mpq_class &rhs, shared_ptr<SVecto
          sense = -1;
       else if( senseChar == 'G' )
          sense = 1;
-      else if( label[0] == '%' )
-         return true;
       else
       {
         cerr << "Unknown sense for " << label << ": " << senseChar << endl;

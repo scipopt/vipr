@@ -1,0 +1,12 @@
+% VALID certificate: a problem without constraints (CON 0); min x with x integer and the trivial range.
+VER 1.1
+VAR 1
+x
+INT 1
+0
+OBJ min
+1 0 1
+CON 0 0
+RTP range -inf inf
+SOL 0
+DER 0
