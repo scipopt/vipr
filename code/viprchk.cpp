@@ -653,12 +653,14 @@ bool processRTP()
          {
             checkLower = true;
             lowerBound = mpq_class(lowerStr);
+            lowerBound.canonicalize();
          }
 
          if( upperStr != "inf" )
          {
             checkUpper = true;
             upperBound = mpq_class(upperStr);
+            upperBound.canonicalize();
          }
 
 
@@ -1061,6 +1063,18 @@ bool processDER()
                   return false;
                }
 
+               if( asm1 < 0 || asm1 >= newConIdx )
+               {
+                  cerr << "Error reading unsplit " << label << ": asm1 out of bounds: " << asm1 << endl;
+                  return false;
+               }
+
+               if( asm2 < 0 || asm2 >= newConIdx )
+               {
+                  cerr << "Error reading unsplit " << label << ": asm2 out of bounds: " << asm2 << endl;
+                  return false;
+               }
+
                if( !canUnsplit(toDer, con1, asm1, con2, asm2, assumptionList) )
                {
                   cerr << label << ": unsplit failed" << endl;
@@ -1292,10 +1306,11 @@ bool readMultipliers(int &sense, SVectorGMP &mult, std::string& label)
       int index;
 
       certificateFile >> index >> a;
+      a.canonicalize(); // GMP's stream input does not canonicalize, e.g. "5/5"
 
-      if( index < 0 )
+      if( index < 0 || index >= (int) constraint.size() )
       {
-         cerr << "In "<< label << ": Index is out of bounds " << index << endl;
+         cerr << "In " << label << ": Index " << index << " out of range (0," << constraint.size() << ")" << endl;
          returnStatement = false;
          goto TERMINATE;
       }
@@ -1305,12 +1320,6 @@ bool readMultipliers(int &sense, SVectorGMP &mult, std::string& label)
       mult[index] = a;
 
 #ifndef NDEBUG
-      if( index < 0 || index >= constraint.size( ) )
-      {
-         cerr << "In " << label << ": Index out of range " << index << " (0," << constraint.size() << ")" << endl;
-         returnStatement = false;
-         goto TERMINATE;
-      }
       std::cout << "multiplying " << a << " * " << constraint[index].label() << "( ";
       constraint[index].print();
       std::cout << " ) " << std::endl;
@@ -1367,6 +1376,7 @@ bool readConstraintCoefficients(shared_ptr<SVectorGMP> &coefficients, bool& coef
          mpq_class a;
 
          certificateFile >> index >> a;
+         a.canonicalize();
          if (certificateFile.fail()) {
             cerr << "Error reading integer-rational pair " << endl;
             goto TERMINATE;
@@ -1414,6 +1424,7 @@ bool readConstraint(string &label, int &sense, mpq_class &rhs, shared_ptr<SVecto
       }
 
       certificateFile >> rhs;
+      rhs.canonicalize();
 
       if( !certificateFile.fail() )
          returnStatement = readConstraintCoefficients(coefficients, coefEqualsObj);
@@ -1495,15 +1506,14 @@ bool canUnsplit(Constraint &toDer, const int con1, const int a1,
 
       if( branchAsm1.isTrashed() )
       {
-         cerr << "accessing trashed constraint: " << branchAsm1.label() << endl;
+         cerr << "accessing trashed assumption: " << branchAsm1.label() << endl;
          goto TERMINATE;
       }
-      if( c2.isTrashed() )
+      if( branchAsm2.isTrashed() )
       {
-         cerr << "accessing trashed constraint: " << c2.label() << endl;
+         cerr << "accessing trashed assumption: " << branchAsm2.label() << endl;
          goto TERMINATE;
       }
-
 
       // the constraints must have opposite senses
       if( -1 != branchAsm1.getSense() * branchAsm2.getSense() )
@@ -1513,23 +1523,23 @@ bool canUnsplit(Constraint &toDer, const int con1, const int a1,
          cerr << "branchAsm2 sense:: " << branchAsm2.getSense() << endl;
          goto TERMINATE;
       }
+      // the right-hand sides must be integral
+      else if( !isInteger(branchAsm1.getRhs()) || !isInteger(branchAsm2.getRhs()) )
+      {
+         cerr << branchAsm1.label() << " and " << branchAsm2.label()
+              << " have a fractional right-hand side" << endl;
+         goto TERMINATE;
+      }
+      // the right-hand sides must be one apart
+      else if( (branchAsm1.getSense() < 0 && (branchAsm1.getRhs() + 1 != branchAsm2.getRhs()))
+         || (branchAsm1.getSense() > 0 && (branchAsm1.getRhs() != branchAsm2.getRhs() + 1)) )
+      {
+         cerr << branchAsm1.label() << " and " << branchAsm2.label()
+              << " do not form a tautology" << endl;
+         goto TERMINATE;
+      }
       else
       {
-
-         // check if disjunction gives a tautology with respect to the variable
-         // integrality requirements
-         bool stat;
-         if( branchAsm1.getSense() < 0 )
-            stat = ((branchAsm1.getRhs() + 1) == branchAsm2.getRhs());
-         else // must be > 0
-            stat = (branchAsm1.getRhs() == (branchAsm2.getRhs() + 1));
-
-         if( !stat ) {
-            cerr << branchAsm1.label() << " and " << branchAsm2.label()
-                 << " do not form a tautology" << endl;
-            goto TERMINATE;
-         };
-
          shared_ptr<SVectorGMP> c1ptr = branchAsm1.coefSVec();
          shared_ptr<SVectorGMP> c2ptr = branchAsm2.coefSVec();
          if( c1ptr == c2ptr || *c1ptr == *c2ptr ) // coefSVec can both point to objectiveCoefficients
@@ -1649,6 +1659,12 @@ bool Constraint::round()
             returnStatement = false;
             goto TERMINATE;
          }
+      }
+      else if( a != 0 )
+      {   // rounding is only valid if all variables in the support are integer
+         cerr << "Rounding a constraint with nonzero coefficient on continuous variable " << j << endl;
+         returnStatement = false;
+         goto TERMINATE;
       }
    }
 
