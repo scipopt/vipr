@@ -24,6 +24,8 @@ Fixed bugs
 - viprchk: reject unsplitting (uns) on a discarded second assumption instead of dereferencing it
 - viprchk: canonicalize rationals after reading (e.g. 5/5 or 1/-2), which GMP does not do on stream input
 - viprchk: reject rationals with a zero denominator and malformed multiplier lists instead of crashing
+- viprchk: accept a last derived constraint that proves the RTP with explicit objective coefficients instead of OBJ
+- viprchk: do not crash when printing the reason for a failed infeasibility check
 - viprchk_parallel: return an error if the final constraint does not prove the RTP
 - viprchk_parallel: keep the assumptions of the second branch when unsplitting (uns)
 - viprchk_parallel: check every constraint for every solution, not only the constraint with the solution's index

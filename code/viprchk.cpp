@@ -913,6 +913,19 @@ bool processDER()
    mpq_class rhs;
    bool warning_issued = false;
 
+   auto printRangeVerified = [] ()
+   {
+      if( numberOfSolutions ) {
+         cout << "Best objval over all solutions: " << bestObjectiveValue << endl;
+      }
+
+      cout << "Successfully verified optimal value range "
+            << (lowerStr == "-inf" ? "(" : "[")
+            << lowerStr << ", " << upperStr
+            << (upperStr == "inf" ? ")" : "]")
+            << "." << endl;
+   };
+
    for( int i = 0; i < numberOfDerivations; ++i )
    {
       shared_ptr<SVectorGMP> coef(make_shared<SVectorGMP>());
@@ -1152,17 +1165,7 @@ bool processDER()
          if( relationToProveType == RANGE && constraint.back().hasObjectiveCoefficients() && constraint.back().dominates(relationToProve) )
          {
             cout << endl << "Terminated after " << i << " derivations." << endl;
-
-            if( numberOfSolutions ) {
-               cout << "Best objval over all solutions: " << bestObjectiveValue << endl;
-            }
-
-            cout << "Successfully verified optimal value range "
-                  << (lowerStr == "-inf" ? "(" : "[")
-                  << lowerStr << ", " << upperStr
-                  << (upperStr == "inf" ? ")" : "]")
-                  << "." << endl;
-
+            printRangeVerified();
             return true;
          }
       }
@@ -1183,7 +1186,21 @@ bool processDER()
 
    cout << endl;
 
+   if( constraint.empty() )
+   {
+      cout << "Failed: no constraint to verify." << endl;
+      return false;
+   }
+
    auto assumptionList = constraint.back().getassumptionList();
+
+   // The check above only considers constraints written with OBJ; the last constraint may also prove the
+   // relation with explicit objective coefficients
+   if( assumptionList == emptyList && relationToProveType == RANGE && constraint.back().dominates(relationToProve) )
+   {
+      printRangeVerified();
+      return true;
+   }
 
    // Print potential reasons for errors
    if( assumptionList != emptyList )
@@ -1203,8 +1220,11 @@ bool processDER()
 
       cout << "Proved: " << endl;
       constraint.back().print();
-      cout << "Instead of: " << endl;
-      relationToProve.print();
+      if( relationToProveType == RANGE ) // relationToProve is not set for infeasibility
+      {
+         cout << "Instead of: " << endl;
+         relationToProve.print();
+      }
    }
 
    return false;
