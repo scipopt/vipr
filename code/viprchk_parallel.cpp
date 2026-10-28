@@ -923,6 +923,18 @@ bool processSOL()
             cerr << "Best objective values (" << bestObjectiveValue<< ")  exceeds lower bound (" << lowerBound << ")." << endl;
             goto TERMINATE;
          }
+         // a feasible solution also refutes infeasibility and a dual bound it violates
+         else if( relationToProveType == RelationToProveType::INFEAS )
+         {
+            cerr << "Feasible solution contradicts infeasibility." << endl;
+            goto TERMINATE;
+         }
+         else if( (isMin && checkLower && bestObjectiveValue < lowerBound)
+            || (!isMin && checkUpper && bestObjectiveValue > upperBound) )
+         {
+            cerr << "Best objective value (" << bestObjectiveValue << ") violates the dual bound to prove." << endl;
+            goto TERMINATE;
+         }
       }
       else if( relationToProveType == RelationToProveType::RANGE && ((isMin && checkUpper) || (!isMin && checkLower)) )
       {
@@ -1124,27 +1136,35 @@ bool seqCheck_Der()
                }
             }
             break;
+         // Cutoff bound OBJ <= best - 1 (min) or OBJ >= best + 1 (max) that only keeps solutions better than the
+         // best verified one; without integral objective, the bound is the best objective value itself
          case DerivationType::SOL:
          {
             mpq_class cutoffbound = bestObjectiveValue;
             if (objectiveIntegral)
             {
-               cutoffbound -= 1;
+               cutoffbound += (isMin ? -1 : 1);
             }
             certificateFile >> bracket;
-            if (coef != objectiveCoefficients)
+            if (numberOfSolutions == 0)
+            {
+               cerr << "Cutoff bound requires a solution in the SOL section" << endl;
+               return false;
+            }
+            else if (coef != objectiveCoefficients && *coef != *objectiveCoefficients)
             {
                cerr << "Cutoff bound can only be applied to objective value " << endl;
                return false;
             }
-            else if (sense != -1)
+            else if (sense != (isMin ? -1 : 1))
             {
-               cerr << "Cutoff bound should have sense 'L'" << endl;
+               cerr << "Cutoff bound should have sense " << (isMin ? "'L' for minimization" : "'G' for maximization") << endl;
                return false;
             }
-            else if (rhs < cutoffbound )
+            else if ((isMin && rhs < cutoffbound) || (!isMin && rhs > cutoffbound))
             {
-               cerr << "No solution known with objective at most " << rhs << ", best solution is " << bestObjectiveValue << endl;
+               cerr << "No solution known with objective " << (isMin ? "at most " : "at least ") << rhs
+                    << ", best solution is " << bestObjectiveValue << endl;
                return false;
             }
             else if( bracket != "}" )

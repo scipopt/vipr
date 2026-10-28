@@ -1,0 +1,17 @@
+% INVALID certificate: max x, x in [0,5] integer, has optimum 5 (solution s1), but the upper bound 4 is "proved" by
+% a cutoff OBJ <= 4, which for maximization is the claim itself.
+VER 1.1
+VAR 1
+x
+INT 1
+0
+OBJ max
+1 0 1
+CON 2 0
+C1 G 0 1 0 1
+C2 L 5 1 0 1
+RTP range -inf 4
+SOL 1
+s1 1 0 5
+DER 1
+D1 L 4 OBJ { sol } -1
