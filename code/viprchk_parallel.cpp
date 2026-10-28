@@ -1388,7 +1388,7 @@ bool readMultipliers(int &sense, SVectorGMP &mult)
 
       if( index < 0 || index >= (int) constraint.size() )
       {
-         cerr << "Index out of range " << index << " (0," << constraint.size() << ")" << endl;
+         cerr << "Index " << index << " out of range (0," << constraint.size() << ")" << endl;
          returnStatement = false;
          goto TERMINATE;
       }
@@ -1583,15 +1583,14 @@ bool canUnsplit(  Constraint &toDer, const int con1, const int a1,
 
       if( branchAsm1.isTrashed() )
       {
-         cerr << "accessing trashed constraint: " << branchAsm1.label() << endl;
+         cerr << "accessing trashed assumption: " << branchAsm1.label() << endl;
          goto TERMINATE;
       }
-      else if( c2.isTrashed() )
+      if( branchAsm2.isTrashed() )
       {
-         cerr << "accessing trashed constraint: " << c2.label() << endl;
+         cerr << "accessing trashed assumption: " << branchAsm2.label() << endl;
          goto TERMINATE;
       }
-
 
       // the constraints must have opposite senses
       if( -1 != branchAsm1.getSense() * branchAsm2.getSense() )
@@ -1601,30 +1600,23 @@ bool canUnsplit(  Constraint &toDer, const int con1, const int a1,
          cerr << "branchAsm2 sense:: " << branchAsm2.getSense() << endl;
          goto TERMINATE;
       }
+      // the right-hand sides must be integral
+      else if( !isInteger(branchAsm1.getRhs()) || !isInteger(branchAsm2.getRhs()) )
+      {
+         cerr << branchAsm1.label() << " and " << branchAsm2.label()
+              << " have a fractional right-hand side" << endl;
+         goto TERMINATE;
+      }
+      // the right-hand sides must be one apart
+      else if( (branchAsm1.getSense() < 0 && (branchAsm1.getRhs() + 1 != branchAsm2.getRhs()))
+         || (branchAsm1.getSense() > 0 && (branchAsm1.getRhs() != branchAsm2.getRhs() + 1)) )
+      {
+         cerr << branchAsm1.label() << " and " << branchAsm2.label()
+              << " do not form a tautology" << endl;
+         goto TERMINATE;
+      }
       else
       {
-
-         // check if disjunction gives a tautology with respect to the variable
-         // integrality requirements
-         bool stat = true;
-         if( branchAsm1.getSense() < 0 )
-            stat = ((branchAsm1.getRhs() + 1) == branchAsm2.getRhs());
-         else // must be > 0
-            stat = (branchAsm1.getRhs() == (branchAsm2.getRhs() + 1));
-
-         if( !stat ) {
-            cerr << branchAsm1.label() << " and " << branchAsm2.label()
-                 << " do not form a tautology" << endl;
-            goto TERMINATE;
-         };
-         // the disjunction a x <= b | a x >= b + 1 is only valid for integer b
-         if( !isInteger(branchAsm1.getRhs()) || !isInteger(branchAsm2.getRhs()) )
-         {
-            cerr << branchAsm1.label() << " and " << branchAsm2.label()
-                 << " have a fractional right-hand side" << endl;
-            goto TERMINATE;
-         }
-
          shared_ptr<SVectorGMP> c1ptr = branchAsm1.coefSVec();
          shared_ptr<SVectorGMP> c2ptr = branchAsm2.coefSVec();
          if( (c1ptr == c2ptr) || (*c1ptr == *c2ptr) ) // coefSVec can both point to objectiveCoefficients
