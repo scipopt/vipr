@@ -1,0 +1,16 @@
+% INVALID certificate: min x s.t. x >= 0, x >= 9 has optimum 9. The solution x = 0 violates C2, so it cannot
+% prove the claimed upper bound 0.
+VER 1.1
+VAR 1
+x
+INT 1
+0
+OBJ min
+1 0 1
+CON 2 0
+C1 G 0 1 0 1
+C2 G 9 1 0 1
+RTP range -inf 0
+SOL 1
+s1 0
+DER 0

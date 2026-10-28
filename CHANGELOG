@@ -24,6 +24,10 @@ Fixed bugs
 - viprchk: reject unsplitting (uns) on a discarded second assumption instead of dereferencing it
 - viprchk: canonicalize rationals after reading (e.g. 5/5 or 1/-2), which GMP does not do on stream input
 - viprchk: reject rationals with a zero denominator and malformed multiplier lists instead of crashing
+- viprchk_parallel: return an error if the final constraint does not prove the RTP
+- viprchk_parallel: keep the assumptions of the second branch when unsplitting (uns)
+- viprchk_parallel: check every constraint for every solution, not only the constraint with the solution's index
+- viprchk_parallel: require a solution to prove a primal bound
 
 Miscellaneous
 -----------

@@ -878,9 +878,9 @@ bool processSOL()
 
             for( int j = 0; j < numberOfConstraints; ++j )
             {
-               if( !satisfies(constraint[i], solutionSpecified) )
+               if( !satisfies(constraint[j], solutionSpecified) )
                {
-                  cerr << "Constraint " << i << " not satisfied." << endl;
+                  cerr << "Constraint " << j << " not satisfied." << endl;
                   goto TERMINATE;
                }
             }
@@ -923,6 +923,11 @@ bool processSOL()
             cerr << "Best objective values (" << bestObjectiveValue<< ")  exceeds lower bound (" << lowerBound << ")." << endl;
             goto TERMINATE;
          }
+      }
+      else if( relationToProveType == RelationToProveType::RANGE && ((isMin && checkUpper) || (!isMin && checkLower)) )
+      {
+         cerr << "No solutions to prove primal bound." << endl;
+         goto TERMINATE;
       }
 
       returnStatement = true;
@@ -1168,6 +1173,10 @@ bool seqCheck_Der()
       // skip to next line
       certificateFile.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
       }
+
+   if( constraint.empty() ) // nothing to check here, parCheck_Der() reports the failure
+      return true;
+
    auto lastAssumptionList = constraint.back().getassumptionList();
    if( lastAssumptionList != emptyList )
    {
@@ -1219,13 +1228,16 @@ bool parCheck_Der()
    // Final result
    if( relationToProveType == RelationToProveType::INFEAS )
    {
-      if( constraint.back().isFalsehood() )
+      if( !constraint.empty() && constraint.back().isFalsehood() )
       {
          cout << "Successfully verified infeasibility." << endl;
          returnStatement = true;
       }
       else
+      {
          cout << "Failed to verify infeasibility." << endl;
+         returnStatement = false;
+      }
    }
    else if( (isMin && checkLower) || (!isMin && checkUpper) )
    {
@@ -1234,17 +1246,21 @@ bool parCheck_Der()
          cout << "RTP is a tautology." << endl;
          returnStatement = true;
       }
-      else if( !constraint.back().dominates(relationToProve) )
+      else if( constraint.empty() || !constraint.back().dominates(relationToProve) )
       {
          if( isMin )
             cout << "Failed to derive lower bound." << endl;
          else
             cout << "Failed to derive upper bound." << endl;
-         cout << "Proved: " << endl;
-         constraint.back().print();
+         if( !constraint.empty() )
+         {
+            cout << "Proved: " << endl;
+            constraint.back().print();
+         }
          cout << "Instead of: " << endl;
          relationToProve.print();
-   }
+         returnStatement = false;
+      }
       else
       {
          if( numberOfSolutions ) {
@@ -1617,9 +1633,7 @@ bool canUnsplit(  Constraint &toDer, const int con1, const int a1,
 #endif
 
       for( auto it = asm2.begin(); it != asm2.end(); ++it ) {
-         if( assumptionList.find(it->first) != assumptionList.end() ) {
-            assumptionList[it->first] = true;
-         }
+         assumptionList[it->first] = true;
       }
 
       if( branchAsm1.isTrashed() )
