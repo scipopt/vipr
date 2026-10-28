@@ -21,7 +21,8 @@ Fixed bugs
 - viprchk: reject rounding (rnd) of a constraint with a nonzero coefficient on a continuous variable
 - viprchk: reject unsplitting (uns) on a disjunction a x <= b | a x >= b + 1 with fractional b
 - viprchk: check constraint indices of lin/rnd multipliers and uns assumptions also in release builds
-- viprchk: canonicalize rationals after reading (e.g. 5/5), which GMP does not do on stream input
+- viprchk: canonicalize rationals after reading (e.g. 5/5 or 1/-2), which GMP does not do on stream input
+- viprchk: reject rationals with a zero denominator and malformed multiplier lists instead of crashing
 
 Miscellaneous
 -----------

@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <map>
 #include <vector>
@@ -238,6 +239,8 @@ bool parCheck_Der();
 bool chkLinearCombinations(size_t i);
 // bool processDER();
 
+bool readRational(std::istream &in, mpq_class &q);
+bool parseRational(const string &str, mpq_class &q);
 bool readMultipliers(int &sense, SVectorGMP &mult);
 bool readConstraintCoefficients(shared_ptr<SVectorGMP> &v);
 bool readConstraint( string &label, int &sense, mpq_class &rhs,
@@ -729,15 +732,21 @@ bool processRTP()
          if( lowerStr != "-inf" )
          {
             checkLower = true;
-            lowerBound = mpq_class(lowerStr);
-            lowerBound.canonicalize();
+            if( !parseRational(lowerStr, lowerBound) )
+            {
+               cerr << "RTP: invalid lower bound " << lowerStr << endl;
+               goto TERMINATE;
+            }
          }
 
          if( upperStr != "inf" )
          {
             checkUpper = true;
-            upperBound = mpq_class(upperStr);
-            upperBound.canonicalize();
+            if( !parseRational(upperStr, upperBound) )
+            {
+               cerr << "RTP: invalid upper bound " << upperStr << endl;
+               goto TERMINATE;
+            }
          }
 
 
@@ -1331,6 +1340,29 @@ bool isInteger(const mpq_class &q)
 }
 
 
+// Reads a rational number and brings it into canonical form. GMP's stream input neither
+// canonicalizes (e.g. "5/5" or "1/-2") nor rejects a zero denominator, on which canonicalize() aborts.
+bool readRational(std::istream &in, mpq_class &q)
+{
+   in >> q;
+
+   if( in.fail() || q.get_den() == 0 )
+      return false;
+
+   q.canonicalize();
+   return true;
+}
+
+
+// Same as readRational() for a whole string, e.g. an RTP bound
+bool parseRational(const string &str, mpq_class &q)
+{
+   std::istringstream in(str);
+
+   return readRational(in, q) && (in >> std::ws).eof();
+}
+
+
 bool readLinComb( mpq_class &rhs, shared_ptr<SVectorGMP> coefficients,
                   int currentConstraintIndex,SVectorBool &assumptionList, SVectorGMP &mult)
 {
@@ -1378,13 +1410,26 @@ bool readMultipliers(int &sense, SVectorGMP &mult)
 
    certificateFile >> k;
 
+   if( certificateFile.fail() )
+   {
+      cerr << "Error reading number of multipliers" << endl;
+      returnStatement = false;
+      goto TERMINATE;
+   }
+
    for( auto j = 0; j < k; ++j )
    {
       mpq_class a;
       int index;
 
-      certificateFile >> index >> a;
-      a.canonicalize(); // GMP's stream input does not canonicalize, e.g. "5/5"
+      certificateFile >> index;
+
+      if( certificateFile.fail() || !readRational(certificateFile, a) )
+      {
+         cerr << "Error reading index-multiplier pair " << j << endl;
+         returnStatement = false;
+         goto TERMINATE;
+      }
 
       if( index < 0 || index >= (int) constraint.size() )
       {
@@ -1449,9 +1494,8 @@ bool readConstraintCoefficients(shared_ptr<SVectorGMP> &coefficients)
             int index;
             mpq_class a;
 
-            certificateFile >> index >> a;
-            a.canonicalize();
-            if( certificateFile.fail() )
+            certificateFile >> index;
+            if( certificateFile.fail() || !readRational(certificateFile, a) )
             {
                cerr << "Error reading integer-rational pair " << endl;
                goto TERMINATE;
@@ -1498,10 +1542,7 @@ bool readConstraint(string &label, int &sense, mpq_class &rhs, shared_ptr<SVecto
         goto TERMINATE;
       }
 
-      certificateFile >> rhs;
-      rhs.canonicalize();
-
-      if( !certificateFile.fail() )
+      if( readRational(certificateFile, rhs) )
          returnStatement = readConstraintCoefficients(coefficients);
 
       if( !returnStatement ) cerr << label <<   ": Error reading constraint " << endl;
