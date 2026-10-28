@@ -1,0 +1,13 @@
+% INVALID certificate: -0.5 must be read as -1/2 (not 0 or 1/2). x >= -0.5 does not imply x >= 0.
+VER 1.1
+VAR 1
+x
+INT 0
+OBJ min
+1 0 1
+CON 1 0
+C1 G -0.5 1 0 1
+RTP range 0 inf
+SOL 0
+DER 1
+D1 G 0 OBJ { lin 1 0 1 } -1

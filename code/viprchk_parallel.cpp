@@ -31,6 +31,7 @@
 #include <map>
 #include <vector>
 #include <cassert>
+#include <cctype>
 #include <gmpxx.h>
 #include <cstdio>
 #include <memory>
@@ -1376,15 +1377,46 @@ bool isInteger(const mpq_class &q)
 }
 
 
-// Reads a rational number and brings it into canonical form. GMP's stream input neither
-// canonicalizes (e.g. "5/5" or "1/-2") nor rejects a zero denominator, on which canonicalize() aborts.
+// Reads a rational number, written as an integer, a fraction or a finite decimal (e.g. -1.25), and brings it into
+// canonical form. GMP's stream input neither canonicalizes fractions (e.g. "5/5" or "1/-2") nor rejects a zero
+// denominator, on which canonicalize() aborts, and it does not read decimals.
 bool readRational(std::istream &in, mpq_class &q)
 {
-   in >> q;
+   mpz_class numerator;
+   mpz_class denominator = 1;
 
-   if( in.fail() || q.get_den() == 0 )
+   in >> std::ws;
+   const bool negative = (in.peek() == '-'); // the sign of "-0.5" is lost in the integer part
+
+   in >> numerator; // stops before '/' or '.'
+
+   if( in.fail() )
       return false;
 
+   if( in.peek() == '/' )
+   {
+      in.get();
+      in >> std::noskipws >> denominator >> std::skipws;
+
+      if( in.fail() || denominator == 0 )
+         return false;
+   }
+   else if( in.peek() == '.' )
+   {
+      string digits;
+
+      in.get();
+      while( std::isdigit(in.peek()) )
+         digits += static_cast<char>(in.get());
+
+      if( digits.empty() )
+         return false;
+
+      mpz_ui_pow_ui(denominator.get_mpz_t(), 10, digits.size());
+      numerator = numerator * denominator + (negative ? -1 : 1) * mpz_class(digits, 10); // base 0 reads "012" as octal
+   }
+
+   q = mpq_class(numerator, denominator);
    q.canonicalize();
    return true;
 }

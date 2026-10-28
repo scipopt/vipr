@@ -29,6 +29,7 @@ Fixed bugs
 - viprchk: do not crash when printing the reason for a failed infeasibility check
 - viprchk: reject a feasible solution if infeasibility is to be proved, and a best solution that violates the dual bound
 - viprchk: accept { sol } cutoffs only with a verified solution, and as OBJ >= best (+ 1) for maximization; accept explicit objective coefficients there
+- viprchk: read values written as finite decimals, as allowed by the certificate format
 - viprchk_parallel: return an error if the final constraint does not prove the RTP
 - viprchk_parallel: keep the assumptions of the second branch when unsplitting (uns)
 - viprchk_parallel: check every constraint for every solution, not only the constraint with the solution's index

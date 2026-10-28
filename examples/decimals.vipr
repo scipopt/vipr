@@ -1,0 +1,14 @@
+% VALID certificate: min x + 0.5 y s.t. x + 0.5 y >= 1.25, x and y continuous, written with finite decimals as the
+% spec allows; proves the lower bound 1.25.
+VER 1.1
+VAR 2
+x y
+INT 0
+OBJ min
+2 0 1 1 0.5
+CON 1 0
+C1 G 1.25 2 0 1.0 1 0.50
+RTP range 1.25 inf
+SOL 0
+DER 1
+D1 G 1.25 OBJ { lin 1 0 1.000 } -1
