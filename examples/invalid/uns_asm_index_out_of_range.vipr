@@ -1,4 +1,5 @@
-% INVALID certificate: unsplit refers to assumption index 99, which does not exist (2 constraints + 1 derived).
+% INVALID certificate: the unsplit D2 refers to assumption index 1000000, which does not exist. Both unsplit
+% sources (D1) dominate D2, so only the index check can reject it.
 VER 1.1
 VAR 1
 x
@@ -11,6 +12,7 @@ C1 G 1 1 0 1
 C2 L 1 1 0 1
 RTP infeas
 SOL 0
-DER 2
+DER 3
 A1 L 0 1 0 1 { asm } -1
-D1 G 1 0 { uns 2 99 2 99 } -1
+D1 G 1 0 { lin 2 0 1 2 -1 } -1
+D2 G 1 0 { uns 3 1000000 3 2 } -1

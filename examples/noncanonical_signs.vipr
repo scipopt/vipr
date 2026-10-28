@@ -1,0 +1,15 @@
+% VALID certificate: min x s.t. 2x >= 1/2, x integer, proves the lower bound 1. Every number is written with
+% negative denominators (e.g. -2/-1 = 2, 1/-2 = -1/2), which the checker must canonicalize.
+VER 1.1
+VAR 1
+x
+INT 1
+0
+OBJ min
+1 0 -1/-1
+CON 1 0
+C1 G -1/-2 1 0 -2/-1
+RTP range -1/-1 inf
+SOL 0
+DER 1
+D1 G -1/-1 OBJ { rnd 1 0 -1/-2 } -1
