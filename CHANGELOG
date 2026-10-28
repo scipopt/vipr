@@ -33,6 +33,11 @@ Fixed bugs
 - viprchk: accept a certificate without constraints (CON 0) and, in viprchk, a dual bound that is a tautology
 - viprchk: do not abort on a constraint label with more digits than an int holds
 - viprchk: skip comment lines in the CON and DER sections without reading them as a constraint, which failed or hung for comments such as "% Lower bound"
+- viprchk: reject a number of coefficients that is negative or not an integer, which was read as 0
+- viprchk: reject a negative number of multipliers in lin and rnd
+- viprchk: reject OBJ as the objective, which was read as the zero objective
+- viprchk: reject OBJ as a solution, which let the next solution erase the objective
+- viprchk: check the indices of the INT section
 - viprchk_parallel: return an error if the final constraint does not prove the RTP
 - viprchk_parallel: keep the assumptions of the second branch when unsplitting (uns)
 - viprchk_parallel: check every constraint for every solution, not only the constraint with the solution's index

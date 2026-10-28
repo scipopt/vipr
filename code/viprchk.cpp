@@ -476,6 +476,11 @@ bool processINT()
                   cerr << "Error reading integer index " << i << endl;
             goto TERMINATE;
                }
+               if( index < 0 || index >= numberOfVariables )
+               {
+                  cerr << "Integer index out of bounds: " << index << endl;
+                  goto TERMINATE;
+               }
                isInt[index] = true;
             }
          }
@@ -528,8 +533,8 @@ bool processOBJ()
           goto TERMINATE;
       }
 
-      returnStatement = readConstraintCoefficients(objectiveCoefficients, dummy);
-      assert(!dummy);
+      // OBJ would make the objective refer to itself, i.e. leave it empty
+      returnStatement = readConstraintCoefficients(objectiveCoefficients, dummy) && !dummy;
       objectiveIntegral = true;
 
       for(auto & it : *objectiveCoefficients)
@@ -769,12 +774,14 @@ bool processSOL()
 
       for( int i = 0; i < numberOfSolutions; ++i )
       {
-         bool dummy;
+         bool coefEqualsObj;
 
          certificateFile >> label;
          cout << "checking solution " << label << endl;
 
-         if( !readConstraintCoefficients(solutionSpecified, dummy) )
+         // a solution lists values; OBJ would make solutionSpecified alias the objective, which the next
+         // solution then overwrites
+         if( !readConstraintCoefficients(solutionSpecified, coefEqualsObj) || coefEqualsObj )
          {
             cerr << "Failed to read solution." << endl;
             goto TERMINATE;
@@ -1412,7 +1419,7 @@ bool readMultipliers(int &sense, SVectorGMP &mult, std::string& label)
 
    certificateFile >> k;
 
-   if( certificateFile.fail() )
+   if( certificateFile.fail() || k < 0 )
    {
       cerr << "In " << label << ": Error reading number of multipliers" << endl;
       returnStatement = false;
@@ -1489,11 +1496,11 @@ bool readConstraintCoefficients(shared_ptr<SVectorGMP> &coefficients, bool& coef
    }
    else
    {
-      k = atoi(tmp.c_str());
+      std::istringstream count(tmp); // atoi() read e.g. "-1" or "x" as 0, i.e. as an empty left-hand side
 
-      if( certificateFile.fail() )
+      if( certificateFile.fail() || !(count >> k) || !(count >> std::ws).eof() || k < 0 )
       {
-         cerr << "Error reading number of elements " << endl;
+         cerr << "Error reading number of elements " << tmp << endl;
          goto TERMINATE;
       }
       for (int j = 0; j < k; j++) {
