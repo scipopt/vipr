@@ -1,0 +1,14 @@
+% VALID certificate: min 2x + y s.t. 2x + y >= 1 proves the lower bound 1 with a final constraint that lists the
+% objective coefficients explicitly instead of writing OBJ.
+VER 1.1
+VAR 2
+x y
+INT 0
+OBJ min
+2 0 2 1 1
+CON 1 0
+C1 G 1 2 0 2 1 1
+RTP range 1 inf
+SOL 0
+DER 1
+D1 G 1 2 0 2 1 1 { lin 1 0 1 } -1

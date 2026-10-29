@@ -1,0 +1,19 @@
+% VALID certificate: min x s.t. 2x >= 5, x integer, has optimum 3 (solution s1). The cutoff OBJ <= 2 from s1 is
+% refuted, which proves the lower bound 3.
+VER 1.1
+VAR 1
+x
+INT 1
+0
+OBJ min
+1 0 1
+CON 1 0
+C1 G 5 1 0 2
+RTP range 3 3
+SOL 1
+s1 1 0 3
+DER 4
+D1 L 2 OBJ { sol } -1
+D2 G 3 1 0 1 { rnd 1 0 1/2 } -1
+D3 G 1 0 { lin 2 2 1 1 -1 } -1
+D4 G 3 OBJ { lin 1 3 1 } -1

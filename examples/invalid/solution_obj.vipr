@@ -1,0 +1,18 @@
+% INVALID certificate: min x s.t. -1 <= x <= 2 has optimum -1, but the lower bound 0 is claimed. The solution s1
+% is written as OBJ, which used to alias the objective; reading s2 then erased the objective, so that the empty
+% combination D1 proved "0 >= 0".
+VER 1.1
+VAR 1
+x
+INT 0
+OBJ min
+1 0 1
+CON 2 0
+C1 G -1 1 0 1
+C2 L 2 1 0 1
+RTP range 0 inf
+SOL 2
+s1 OBJ
+s2 0
+DER 1
+D1 G 0 OBJ { lin 0 } -1

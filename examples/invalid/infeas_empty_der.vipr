@@ -1,0 +1,14 @@
+% INVALID certificate: x in [0,1] is feasible; infeasibility is claimed with an empty DER section.
+VER 1.1
+VAR 1
+x
+INT 1
+0
+OBJ min
+0
+CON 2 0
+C1 G 0 1 0 1
+C2 L 1 1 0 1
+RTP infeas
+SOL 0
+DER 0

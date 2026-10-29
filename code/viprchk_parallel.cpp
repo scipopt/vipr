@@ -26,10 +26,12 @@
 #include <algorithm>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <map>
 #include <vector>
 #include <cassert>
+#include <cctype>
 #include <gmpxx.h>
 #include <cstdio>
 #include <memory>
@@ -238,6 +240,8 @@ bool parCheck_Der();
 bool chkLinearCombinations(size_t i);
 // bool processDER();
 
+bool readRational(std::istream &in, mpq_class &q);
+bool parseRational(const string &str, mpq_class &q);
 bool readMultipliers(int &sense, SVectorGMP &mult);
 bool readConstraintCoefficients(shared_ptr<SVectorGMP> &v);
 bool readConstraint( string &label, int &sense, mpq_class &rhs,
@@ -546,6 +550,11 @@ bool processINT()
                   cerr << "Error reading integer index " << i << endl;
             goto TERMINATE;
                }
+               if( index < 0 || index >= numberOfVariables )
+               {
+                  cerr << "Integer index out of bounds: " << index << endl;
+                  goto TERMINATE;
+               }
                isInt[index] = true;
             }
          }
@@ -596,7 +605,11 @@ bool processOBJ()
           goto TERMINATE;
       }
 
-      returnStatement = readConstraintCoefficients(objectiveCoefficients);
+      shared_ptr<SVectorGMP> coefficients(make_shared<SVectorGMP>());
+
+      // OBJ would make the objective refer to itself, i.e. leave it empty
+      returnStatement = readConstraintCoefficients(coefficients) && coefficients != objectiveCoefficients;
+      objectiveCoefficients = coefficients;
       objectiveIntegral = true;
 
       for( auto it = objectiveCoefficients->begin(); it != objectiveCoefficients->end(); ++it )
@@ -653,16 +666,16 @@ bool processCON()
          int sense;
          mpq_class rhs;
 
+         returnStatement = true; // for CON 0
+
          for( int i = 0; i < numberOfConstraints; i++ )
          {
             shared_ptr<SVectorGMP> coef(make_shared<SVectorGMP>());
 
             returnStatement = readConstraint(label, sense, rhs, coef);
-            if( label[0] == '%' )
+            if( returnStatement && label[0] == '%' ) // label keeps the last comment if reading fails
             {
                i--;
-//             TODO: this is not working if the line with the comment is not containing a whitespace 
-//               if( label[ label.size( ) - 1 ] != '\n' )
                certificateFile.ignore(std::numeric_limits<std::streamsize>::max( ), '\n');
                continue;
             }
@@ -729,13 +742,21 @@ bool processRTP()
          if( lowerStr != "-inf" )
          {
             checkLower = true;
-            lowerBound = mpq_class(lowerStr);
+            if( !parseRational(lowerStr, lowerBound) )
+            {
+               cerr << "RTP: invalid lower bound " << lowerStr << endl;
+               goto TERMINATE;
+            }
          }
 
          if( upperStr != "inf" )
          {
             checkUpper = true;
-            upperBound = mpq_class(upperStr);
+            if( !parseRational(upperStr, upperBound) )
+            {
+               cerr << "RTP: invalid upper bound " << upperStr << endl;
+               goto TERMINATE;
+            }
          }
 
 
@@ -841,7 +862,9 @@ bool processSOL()
          certificateFile >> label;
          cout << "checking solution " << label << endl;
 
-         if( !readConstraintCoefficients(solutionSpecified) )
+         // a solution lists values; OBJ would make solutionSpecified alias the objective, which the next
+         // solution then overwrites
+         if( !readConstraintCoefficients(solutionSpecified) || solutionSpecified == objectiveCoefficients )
          {
             cerr << "Failed to read solution." << endl;
             goto TERMINATE;
@@ -867,9 +890,9 @@ bool processSOL()
 
             for( int j = 0; j < numberOfConstraints; ++j )
             {
-               if( !satisfies(constraint[i], solutionSpecified) )
+               if( !satisfies(constraint[j], solutionSpecified) )
                {
-                  cerr << "Constraint " << i << " not satisfied." << endl;
+                  cerr << "Constraint " << j << " not satisfied." << endl;
                   goto TERMINATE;
                }
             }
@@ -912,6 +935,23 @@ bool processSOL()
             cerr << "Best objective values (" << bestObjectiveValue<< ")  exceeds lower bound (" << lowerBound << ")." << endl;
             goto TERMINATE;
          }
+         // a feasible solution also refutes infeasibility and a dual bound it violates
+         else if( relationToProveType == RelationToProveType::INFEAS )
+         {
+            cerr << "Feasible solution contradicts infeasibility." << endl;
+            goto TERMINATE;
+         }
+         else if( (isMin && checkLower && bestObjectiveValue < lowerBound)
+            || (!isMin && checkUpper && bestObjectiveValue > upperBound) )
+         {
+            cerr << "Best objective value (" << bestObjectiveValue << ") violates the dual bound to prove." << endl;
+            goto TERMINATE;
+         }
+      }
+      else if( relationToProveType == RelationToProveType::RANGE && ((isMin && checkUpper) || (!isMin && checkLower)) )
+      {
+         cerr << "No solutions to prove primal bound." << endl;
+         goto TERMINATE;
       }
 
       returnStatement = true;
@@ -969,8 +1009,6 @@ bool seqCheck_Der()
       if( label[0] == '%' )
       {
          i--;
-//       TODO: this is not working if the line with the comment is not containing a whitespace
-//         if( label[ label.size( ) - 1 ] != '\n' )
          certificateFile.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
          continue;
       }
@@ -1082,6 +1120,18 @@ bool seqCheck_Der()
                   return false;
                }
 
+               if( (asm1 < 0) || (asm1 >= newConIdx) )
+               {
+                  cerr << "asm1 out of bounds: " << asm1 << endl;
+                  return false;
+               }
+
+               if( (asm2 < 0) || (asm2 >= newConIdx) )
+               {
+                  cerr << "asm2 out of bounds: " << asm2 << endl;
+                  return false;
+               }
+
                if( !canUnsplit(toDer, con1, asm1, con2, asm2, assumptionList) )
                {
                   cerr << label << ": unsplit failed" << endl;
@@ -1096,27 +1146,35 @@ bool seqCheck_Der()
                }
             }
             break;
+         // Cutoff bound OBJ <= best - 1 (min) or OBJ >= best + 1 (max) that only keeps solutions better than the
+         // best verified one; without integral objective, the bound is the best objective value itself
          case DerivationType::SOL:
          {
             mpq_class cutoffbound = bestObjectiveValue;
             if (objectiveIntegral)
             {
-               cutoffbound -= 1;
+               cutoffbound += (isMin ? -1 : 1);
             }
             certificateFile >> bracket;
-            if (coef != objectiveCoefficients)
+            if (numberOfSolutions == 0)
+            {
+               cerr << "Cutoff bound requires a solution in the SOL section" << endl;
+               return false;
+            }
+            else if (coef != objectiveCoefficients && *coef != *objectiveCoefficients)
             {
                cerr << "Cutoff bound can only be applied to objective value " << endl;
                return false;
             }
-            else if (sense != -1)
+            else if (sense != (isMin ? -1 : 1))
             {
-               cerr << "Cutoff bound should have sense 'L'" << endl;
+               cerr << "Cutoff bound should have sense " << (isMin ? "'L' for minimization" : "'G' for maximization") << endl;
                return false;
             }
-            else if (rhs < cutoffbound )
+            else if ((isMin && rhs < cutoffbound) || (!isMin && rhs > cutoffbound))
             {
-               cerr << "No solution known with objective at most " << rhs << ", best solution is " << bestObjectiveValue << endl;
+               cerr << "No solution known with objective " << (isMin ? "at most " : "at least ") << rhs
+                    << ", best solution is " << bestObjectiveValue << endl;
                return false;
             }
             else if( bracket != "}" )
@@ -1145,6 +1203,10 @@ bool seqCheck_Der()
       // skip to next line
       certificateFile.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
       }
+
+   if( constraint.empty() ) // nothing to check here, parCheck_Der() reports the failure
+      return true;
+
    auto lastAssumptionList = constraint.back().getassumptionList();
    if( lastAssumptionList != emptyList )
    {
@@ -1196,13 +1258,16 @@ bool parCheck_Der()
    // Final result
    if( relationToProveType == RelationToProveType::INFEAS )
    {
-      if( constraint.back().isFalsehood() )
+      if( !constraint.empty() && constraint.back().isFalsehood() )
       {
          cout << "Successfully verified infeasibility." << endl;
          returnStatement = true;
       }
       else
+      {
          cout << "Failed to verify infeasibility." << endl;
+         returnStatement = false;
+      }
    }
    else if( (isMin && checkLower) || (!isMin && checkUpper) )
    {
@@ -1211,17 +1276,21 @@ bool parCheck_Der()
          cout << "RTP is a tautology." << endl;
          returnStatement = true;
       }
-      else if( !constraint.back().dominates(relationToProve) )
+      else if( constraint.empty() || !constraint.back().dominates(relationToProve) )
       {
          if( isMin )
             cout << "Failed to derive lower bound." << endl;
          else
             cout << "Failed to derive upper bound." << endl;
-         cout << "Proved: " << endl;
-         constraint.back().print();
+         if( !constraint.empty() )
+         {
+            cout << "Proved: " << endl;
+            constraint.back().print();
+         }
          cout << "Instead of: " << endl;
          relationToProve.print();
-   }
+         returnStatement = false;
+      }
       else
       {
          if( numberOfSolutions ) {
@@ -1317,6 +1386,60 @@ bool isInteger(const mpq_class &q)
 }
 
 
+// Reads a rational number, written as an integer, a fraction or a finite decimal (e.g. -1.25), and brings it into
+// canonical form. GMP's stream input neither canonicalizes fractions (e.g. "5/5" or "1/-2") nor rejects a zero
+// denominator, on which canonicalize() aborts, and it does not read decimals.
+bool readRational(std::istream &in, mpq_class &q)
+{
+   mpz_class numerator;
+   mpz_class denominator = 1;
+
+   in >> std::ws;
+   const bool negative = (in.peek() == '-'); // the sign of "-0.5" is lost in the integer part
+
+   in >> numerator; // stops before '/' or '.'
+
+   if( in.fail() )
+      return false;
+
+   if( in.peek() == '/' )
+   {
+      in.get();
+      in >> std::noskipws >> denominator >> std::skipws;
+
+      if( in.fail() || denominator == 0 )
+         return false;
+   }
+   else if( in.peek() == '.' )
+   {
+      string digits;
+
+      in.get();
+      while( std::isdigit(in.peek()) )
+         digits += static_cast<char>(in.get());
+
+      if( digits.empty() )
+         return false;
+
+      mpz_ui_pow_ui(denominator.get_mpz_t(), 10, digits.size());
+      numerator = numerator * denominator + (negative ? -1 : 1) * mpz_class(digits, 10); // base 0 reads "012" as octal
+   }
+
+   q = mpq_class(numerator, denominator);
+   q.canonicalize();
+   return true;
+}
+
+
+// Same as readRational() for a whole string, e.g. an RTP bound
+bool parseRational(const string &str, mpq_class &q)
+{
+   std::istringstream in(str);
+
+   return readRational(in, q) && (in >> std::ws).eof();
+}
+
+
 bool readLinComb( mpq_class &rhs, shared_ptr<SVectorGMP> coefficients,
                   int currentConstraintIndex,SVectorBool &assumptionList, SVectorGMP &mult)
 {
@@ -1364,12 +1487,33 @@ bool readMultipliers(int &sense, SVectorGMP &mult)
 
    certificateFile >> k;
 
+   if( certificateFile.fail() || k < 0 )
+   {
+      cerr << "Error reading number of multipliers" << endl;
+      returnStatement = false;
+      goto TERMINATE;
+   }
+
    for( auto j = 0; j < k; ++j )
    {
       mpq_class a;
       int index;
 
-      certificateFile >> index >> a;
+      certificateFile >> index;
+
+      if( certificateFile.fail() || !readRational(certificateFile, a) )
+      {
+         cerr << "Error reading index-multiplier pair " << j << endl;
+         returnStatement = false;
+         goto TERMINATE;
+      }
+
+      if( index < 0 || index >= (int) constraint.size() )
+      {
+         cerr << "Index " << index << " out of range (0," << constraint.size() << ")" << endl;
+         returnStatement = false;
+         goto TERMINATE;
+      }
 
       if( a == 0 ) continue; // ignore 0 multiplier
 
@@ -1413,11 +1557,11 @@ bool readConstraintCoefficients(shared_ptr<SVectorGMP> &coefficients)
    }
    else
    {
-      k = atoi(tmp.c_str());
+      std::istringstream count(tmp); // atoi() read e.g. "-1" or "x" as 0, i.e. as an empty left-hand side
 
-      if( certificateFile.fail() )
+      if( certificateFile.fail() || !(count >> k) || !(count >> std::ws).eof() || k < 0 )
       {
-         cerr << "Error reading number of elements " << endl;
+         cerr << "Error reading number of elements " << tmp << endl;
          goto TERMINATE;
       }
       else
@@ -1427,8 +1571,8 @@ bool readConstraintCoefficients(shared_ptr<SVectorGMP> &coefficients)
             int index;
             mpq_class a;
 
-            certificateFile >> index >> a;
-            if( certificateFile.fail() )
+            certificateFile >> index;
+            if( certificateFile.fail() || !readRational(certificateFile, a) )
             {
                cerr << "Error reading integer-rational pair " << endl;
                goto TERMINATE;
@@ -1457,7 +1601,14 @@ bool readConstraint(string &label, int &sense, mpq_class &rhs, shared_ptr<SVecto
    auto returnStatement = false;
    char senseChar;
 
-   certificateFile >> label >> senseChar;
+   certificateFile >> label;
+
+   // a comment line, which the caller skips up to its end; do not read on, which took the sense from the next line
+   // after a comment without blank and tried to read a comment such as "% Lower bound" as a constraint
+   if( !certificateFile.fail() && label[0] == '%' )
+      return true;
+
+   certificateFile >> senseChar;
 
    if( !certificateFile.fail() )
    {
@@ -1467,17 +1618,13 @@ bool readConstraint(string &label, int &sense, mpq_class &rhs, shared_ptr<SVecto
          sense = -1;
       else if( senseChar == 'G' )
          sense = 1;
-      else if( label[0] == '%' )
-         return true;
       else
       {
         cerr << "Unknown sense for " << label << ": " << senseChar << endl;
         goto TERMINATE;
       }
 
-      certificateFile >> rhs;
-
-      if( !certificateFile.fail() )
+      if( readRational(certificateFile, rhs) )
          returnStatement = readConstraintCoefficients(coefficients);
 
       if( !returnStatement ) cerr << label <<   ": Error reading constraint " << endl;
@@ -1552,22 +1699,19 @@ bool canUnsplit(  Constraint &toDer, const int con1, const int a1,
 #endif
 
       for( auto it = asm2.begin(); it != asm2.end(); ++it ) {
-         if( assumptionList.find(it->first) != assumptionList.end() ) {
-            assumptionList[it->first] = true;
-         }
+         assumptionList[it->first] = true;
       }
 
       if( branchAsm1.isTrashed() )
       {
-         cerr << "accessing trashed constraint: " << branchAsm1.label() << endl;
+         cerr << "accessing trashed assumption: " << branchAsm1.label() << endl;
          goto TERMINATE;
       }
-      else if( c2.isTrashed() )
+      if( branchAsm2.isTrashed() )
       {
-         cerr << "accessing trashed constraint: " << c2.label() << endl;
+         cerr << "accessing trashed assumption: " << branchAsm2.label() << endl;
          goto TERMINATE;
       }
-
 
       // the constraints must have opposite senses
       if( -1 != branchAsm1.getSense() * branchAsm2.getSense() )
@@ -1577,23 +1721,23 @@ bool canUnsplit(  Constraint &toDer, const int con1, const int a1,
          cerr << "branchAsm2 sense:: " << branchAsm2.getSense() << endl;
          goto TERMINATE;
       }
+      // the right-hand sides must be integral
+      else if( !isInteger(branchAsm1.getRhs()) || !isInteger(branchAsm2.getRhs()) )
+      {
+         cerr << branchAsm1.label() << " and " << branchAsm2.label()
+              << " have a fractional right-hand side" << endl;
+         goto TERMINATE;
+      }
+      // the right-hand sides must be one apart
+      else if( (branchAsm1.getSense() < 0 && (branchAsm1.getRhs() + 1 != branchAsm2.getRhs()))
+         || (branchAsm1.getSense() > 0 && (branchAsm1.getRhs() != branchAsm2.getRhs() + 1)) )
+      {
+         cerr << branchAsm1.label() << " and " << branchAsm2.label()
+              << " do not form a tautology" << endl;
+         goto TERMINATE;
+      }
       else
       {
-
-         // check if disjunction gives a tautology with respect to the variable
-         // integrality requirements
-         bool stat = true;
-         if( branchAsm1.getSense() < 0 )
-            stat = ((branchAsm1.getRhs() + 1) == branchAsm2.getRhs());
-         else // must be > 0
-            stat = (branchAsm1.getRhs() == (branchAsm2.getRhs() + 1));
-
-         if( !stat ) {
-            cerr << branchAsm1.label() << " and " << branchAsm2.label()
-                 << " do not form a tautology" << endl;
-            goto TERMINATE;
-         };
-
          shared_ptr<SVectorGMP> c1ptr = branchAsm1.coefSVec();
          shared_ptr<SVectorGMP> c2ptr = branchAsm2.coefSVec();
          if( (c1ptr == c2ptr) || (*c1ptr == *c2ptr) ) // coefSVec can both point to objectiveCoefficients
@@ -1697,6 +1841,12 @@ bool Constraint::round()
             returnStatement = false;
             goto TERMINATE;
          }
+      }
+      else if( a != 0 )
+      {   // rounding is only valid if all variables in the support are integer
+         cerr << "Rounding a constraint with nonzero coefficient on continuous variable " << j << endl;
+         returnStatement = false;
+         goto TERMINATE;
       }
    }
 

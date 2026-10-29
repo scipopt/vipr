@@ -1,0 +1,14 @@
+% VALID certificate: min x s.t. x >= 1 proves the lower bound 1. The label of D1 contains more digits than an int
+% holds, which may only cause the warning about labels that do not match the constraint index.
+VER 1.1
+VAR 1
+x
+INT 0
+OBJ min
+1 0 1
+CON 1 0
+C1 G 1 1 0 1
+RTP range 1 inf
+SOL 0
+DER 1
+D20261028123456789 G 1 OBJ { lin 1 0 1 } -1

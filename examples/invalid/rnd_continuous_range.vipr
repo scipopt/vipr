@@ -1,0 +1,14 @@
+% INVALID certificate (test of the checker), reported by @cruisesong7 in #25: for min x subject to x >= 1/2 with x
+% CONTINUOUS, the optimal value is 1/2, but d1 "rounds" x >= 1/2 to x >= 1, which is valid only for an integer
+% variable, and so proves the wrong optimal value 1.  A sound checker must reject it.
+VER 1.0
+VAR 1 x
+INT 0
+OBJ min 1 0 1
+CON 1 0
+c1 G 1/2 1 0 1
+RTP range 1 1
+SOL 1
+s1 1 0 1
+DER 1
+d1 G 1 OBJ { rnd 1 0 1 } -1

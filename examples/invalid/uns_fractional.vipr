@@ -1,0 +1,21 @@
+% INVALID certificate (test of the checker): the problem  x >= 1, x <= 1, x INTEGER  is feasible (x = 1), but the
+% branching disjunction x <= 1/2 | x >= 3/2 used by the unsplit D3 does not cover x = 1 (fractional rhs).
+% A sound checker must reject it.
+VER 1.1
+VAR 1
+x
+INT 1
+0
+OBJ min
+0
+CON 2 0
+C1 G 1 1 0 1
+C2 L 1 1 0 1
+RTP infeas
+SOL 0
+DER 5
+A1 L 1/2 1 0 1 { asm } -1
+A2 G 3/2 1 0 1 { asm } -1
+D1 G 1/2 0 { lin 2 0 1 2 -1 } -1
+D2 G 1/2 0 { lin 2 3 1 1 -1 } -1
+D3 G 1/2 0 { uns 4 2 5 3 } -1

@@ -9,6 +9,7 @@ Features:
 Build system
 ------------
 - make Release Mode the default CMAKE_BUILD_TYPE
+- run the certificates in examples/ (accepted) and examples/invalid/ (rejected) with ctest
 
 Fixed bugs
 -----------
@@ -18,6 +19,29 @@ Fixed bugs
 - remove compactification marker as source of unsuccessful domination checks
 - use global bound changes from the DER section (marked with "global") to complete weak derivations in viprcomp
 - terminate viprcomp with an error if a derivation cannot be completed instead of writing an invalid certificate
+- viprchk: reject rounding (rnd) of a constraint with a nonzero coefficient on a continuous variable
+- viprchk: reject unsplitting (uns) on a disjunction a x <= b | a x >= b + 1 with fractional b
+- viprchk: check constraint indices of lin/rnd multipliers and uns assumptions also in release builds
+- viprchk: reject unsplitting (uns) on a discarded second assumption instead of dereferencing it
+- viprchk: canonicalize rationals after reading (e.g. 5/5 or 1/-2), which GMP does not do on stream input
+- viprchk: reject rationals with a zero denominator and malformed multiplier lists instead of crashing
+- viprchk: accept a last derived constraint that proves the RTP with explicit objective coefficients instead of OBJ
+- viprchk: do not crash when printing the reason for a failed infeasibility check
+- viprchk: reject a feasible solution if infeasibility is to be proved, and a best solution that violates the dual bound
+- viprchk: accept { sol } cutoffs only with a verified solution, and as OBJ >= best (+ 1) for maximization; accept explicit objective coefficients there
+- viprchk: read values written as finite decimals, as allowed by the certificate format
+- viprchk: accept a certificate without constraints (CON 0) and, in viprchk, a dual bound that is a tautology
+- viprchk: do not abort on a constraint label with more digits than an int holds
+- viprchk: skip comment lines in the CON and DER sections without reading them as a constraint, which failed or hung for comments such as "% Lower bound"
+- viprchk: reject a number of coefficients that is negative or not an integer, which was read as 0
+- viprchk: reject a negative number of multipliers in lin and rnd
+- viprchk: reject OBJ as the objective, which was read as the zero objective
+- viprchk: reject OBJ as a solution, which let the next solution erase the objective
+- viprchk: check the indices of the INT section
+- viprchk_parallel: return an error if the final constraint does not prove the RTP
+- viprchk_parallel: keep the assumptions of the second branch when unsplitting (uns)
+- viprchk_parallel: check every constraint for every solution, not only the constraint with the solution's index
+- viprchk_parallel: require a solution to prove a primal bound
 
 Miscellaneous
 -----------

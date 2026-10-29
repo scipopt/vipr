@@ -1,0 +1,14 @@
+% INVALID certificate: the objective is written as the variable name x instead of "1 0 1". The number of
+% coefficients x was read as 0, i.e. as the empty objective, so that the lower bound 0 held trivially, although
+% min x s.t. x >= -5 has the optimum -5.
+VER 1.1
+VAR 1
+x
+INT 0
+OBJ min
+x
+CON 1 0
+C1 G -5 1 0 1
+RTP range 0 inf
+SOL 0
+DER 0

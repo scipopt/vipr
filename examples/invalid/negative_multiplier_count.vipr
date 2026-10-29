@@ -1,0 +1,16 @@
+% INVALID certificate: the number of multipliers of D1 is negative (the spec requires a nonnegative integer).
+% It was read as the empty combination, which proves the tautology D1; D2 then proves the bound correctly.
+VER 1.1
+VAR 1
+x
+INT 1
+0
+OBJ min
+1 0 1
+CON 1 0
+C1 G 0 1 0 1
+RTP range 0 inf
+SOL 0
+DER 2
+D1 G -1 0 { lin -1 } -1
+D2 G 0 OBJ { lin 1 0 1 } -1

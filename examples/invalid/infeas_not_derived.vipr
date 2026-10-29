@@ -1,0 +1,15 @@
+% INVALID certificate: x in [0,1] is feasible; the only derivation (x >= 0) is valid but is not a contradiction.
+VER 1.1
+VAR 1
+x
+INT 1
+0
+OBJ min
+0
+CON 2 0
+C1 G 0 1 0 1
+C2 L 1 1 0 1
+RTP infeas
+SOL 0
+DER 1
+D1 G 0 1 0 1 { lin 1 0 1 } -1

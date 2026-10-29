@@ -1,0 +1,19 @@
+% VALID certificate: min x s.t. 1 <= x <= 5 proves the lower bound 1. The checkers read the comment lines in the
+% CON and DER sections below as the beginning of a constraint: "% Lower bound" made them loop forever, the comment
+% without blank after % took the sense from the next line and so skipped C2, and "% Gap closed" failed.
+VER 1.1
+VAR 1
+x
+INT 0
+OBJ min
+1 0 1
+CON 2 0
+% Lower bound
+C1 G 1 1 0 1
+%upper
+C2 L 5 1 0 1
+RTP range 1 inf
+SOL 0
+DER 1
+% Gap closed by D1
+D1 G 1 OBJ { lin 1 0 1 } -1

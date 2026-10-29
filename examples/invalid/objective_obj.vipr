@@ -1,0 +1,13 @@
+% INVALID certificate: the OBJ section lists the keyword OBJ, which only abbreviates the objective in a constraint,
+% instead of the objective coefficients. It was read as the zero objective, so that the lower bound 0 held trivially.
+VER 1.1
+VAR 1
+x
+INT 0
+OBJ min
+OBJ
+CON 1 0
+C1 G -5 1 0 1
+RTP range 0 inf
+SOL 0
+DER 0
