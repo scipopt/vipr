@@ -1,0 +1,14 @@
+% VALID certificate: min x s.t. x >= 1, x integer; solution x = 5/5 (= 1) proves the bound min <= 1.
+VER 1.1
+VAR 1
+x
+INT 1
+0
+OBJ min
+1 0 1
+CON 1 0
+C1 G 1 1 0 1
+RTP range -inf 1
+SOL 1
+s1 1 0 5/5
+DER 0

@@ -18,6 +18,12 @@ Fixed bugs
 - remove compactification marker as source of unsuccessful domination checks
 - use global bound changes from the DER section (marked with "global") to complete weak derivations in viprcomp
 - terminate viprcomp with an error if a derivation cannot be completed instead of writing an invalid certificate
+- viprchk: reject rounding (rnd) of a constraint with a nonzero coefficient on a continuous variable
+- viprchk: reject unsplitting (uns) on a disjunction a x <= b | a x >= b + 1 with fractional b
+- viprchk: check constraint indices of lin/rnd multipliers and uns assumptions also in release builds
+- viprchk: reject unsplitting (uns) on a discarded second assumption instead of dereferencing it
+- viprchk: canonicalize rationals after reading (e.g. 5/5 or 1/-2), which GMP does not do on stream input
+- viprchk: reject rationals with a zero denominator and malformed multiplier lists instead of crashing
 
 Miscellaneous
 -----------

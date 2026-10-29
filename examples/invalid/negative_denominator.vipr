@@ -1,0 +1,16 @@
+% INVALID certificate (test of the checker): x in [1,2] is feasible. The multipliers 1/-1 (= -1) and -1/-1 (= 1)
+% have the wrong signs for a >= combination, but GMP's sign test only looks at the numerator of a
+% non-canonical rational. A sound checker must canonicalize them and reject D1.
+VER 1.1
+VAR 1
+x
+INT 0
+OBJ min
+0
+CON 2 0
+C1 G 1 1 0 1
+C2 L 2 1 0 1
+RTP infeas
+SOL 0
+DER 1
+D1 G 1 0 { lin 2 0 1/-1 1 -1/-1 } -1

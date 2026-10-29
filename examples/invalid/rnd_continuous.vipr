@@ -1,0 +1,16 @@
+% INVALID certificate (test of the checker): the LP  x >= 1/2, x <= 1/2  with x CONTINUOUS is feasible (x = 1/2),
+% but D1 "rounds" x >= 1/2 to x >= 1, which is valid only for an integer variable.  A sound checker must reject it.
+VER 1.1
+VAR 1
+x
+INT 0
+OBJ min
+0
+CON 2 0
+C1 G 1/2 1 0 1
+C2 L 1/2 1 0 1
+RTP infeas
+SOL 0
+DER 2
+D1 G 1 1 0 1 { rnd 1 0 1 } -1
+D2 G 1/2 0 { lin 2 2 1 1 -1 } -1
